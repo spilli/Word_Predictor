@@ -1,0 +1,665 @@
+---
+title: "N-gram model based word prediction for smart keyboard"
+author: "Sridhar Pilli"
+date: "April 29, 2016"
+output: html_document
+---
+```{r}
+date()
+```
+# Summary
+N-gram probabilities are used to predict the next word given a sequence of words in a sentence. In this paper, first an exploratory data analysis is carried out on the text data obtained from various online web sources - news, blogs and twitter. Second N-gram probabilities are calculated and associated models are built to predict the next word given a sequence of words. Finally the models are compared and the model with least perplexity is chosen. The model built out of this project would be to use in a shiny app that simulates a predictive keyboard. 
+
+# Exploratory data analysis
+In this section exploratory data analysis is carried out to undersand word, bigram and trigram frequencies.
+
+## Data clean up and pre processing
+Lets load the data into R session and carry out the follwing pre processing steps.
+
+1. Split the raw text sentences into words
+2. Filter out punctuations. 
+3. Convert all words to lowercase.
+4. Filter out profane words. List of profane words are taken from [_**CMU website**_](http://www.cs.cmu.edu/~biglou/resources/bad-words.txt)
+5. Filter out stop words. List of stop word taken from [_**MIT Paper**_](http://jmlr.csail.mit.edu/papers/volume5/lewis04a/a11-smart-stop-list/english.stop)
+
+[*Refer to appendix section for further details on R code and functions created*]
+
+```{r,echo=FALSE}
+setwd("~/Documents/Courses/Data Science Coursera/10 Capstone Project/")
+
+fileurl <- "http://www.cs.cmu.edu/~biglou/resources/bad-words.txt"
+if(!file.exists("bad-words.txt")) { download.file(fileurl,destfile = "bad-words.txt",method="curl") }
+
+fileurl <- "http://jmlr.csail.mit.edu/papers/volume5/lewis04a/a11-smart-stop-list/english.stop"
+if(!file.exists("stop-words.txt")) { download.file(fileurl,destfile = "stop-words.txt", method="curl") }
+```
+
+```{r,echo=FALSE}
+ngram_tokenize <- function(filename, n=-1L) {
+    # Read file
+    con <- file(filename,"r");raw <- readLines(con,n);close(con) 
+    
+    # Remove punctuation, convert to lower case and split into words.
+    raw <- lapply(raw, function(x) { tolower(gsub("[[:punct:]]","", x)) })
+    raw <- lapply(raw, function(x) unlist(strsplit(x,split=" ")) ) # into words
+    raw <- lapply(raw, function(x) { gsub("[0-9]","",x)}) # remove numbers
+    raw <- lapply(raw, function(x) x[!(x=="")]) # remove blanks
+
+    # Apply profanity filter
+    con <- file("bad-words.txt","r");profane <- readLines(con);close(con)
+    raw <- lapply(raw, function(x) { x[!(x %in% profane[-1])] })
+}
+```
+
+```{r,warning=FALSE,message=FALSE}
+# Read number of lines,words in each file and measure its size
+system("wc -lwc final/en_US/*.txt > temp.txt")
+a <- read.table("temp.txt"); 
+a <- data.frame("Filename" = a$V4, "Lines" = prettyNum(a$V1,big.mark = ","),
+                "Words" = prettyNum(a$V2,big.mark = ","), "Size.MB" = round(a$V3/2^20,2))
+library(knitr); kable(a,align="c")
+```
+
+There are about 4 million lines of text containing about 100 million words spread in files of size 550MB. Read this data into workspace.
+```{r,warning=FALSE,message=FALSE}
+# Process each input file. 
+data.blogs <- ngram_tokenize("final/en_US/en_US.blogs.txt")
+data.news <- ngram_tokenize("final/en_US/en_US.news.txt")
+data.twitter <- ngram_tokenize("final/en_US/en_US.twitter.txt")
+```
+
+## Training, Validation and Test Data sets
+Lets split 60% of data into training, 20% of data into validation and the remaning 20% of data into testing data sets. The idea is to grab a set of lines from each of the sources of data - blogs, news and twitter to for a particular type of data set - training/validation/testing sets.
+
+```{r}
+# Blog data indices
+set.seed(100)
+N <- length(data.blogs); idVals <- sample(seq(N)); N1 <- round(0.6*N); N2 <- round(0.8*N)
+tr_b <- idVals[1:N1]; va_b <- idVals[(N1+1):N2]; te_b <- idVals[(N2+1) : N]
+
+# News data indices
+set.seed(200)
+N <- length(data.news); idVals <- sample(seq(N)); N1 <- round(0.6*N); N2 <- round(0.8*N)
+tr_n <- idVals[1:N1]; va_n <- idVals[(N1+1):N2]; te_n <- idVals[(N2+1) : N]
+
+# Twitter data indices
+set.seed(300)
+N <- length(data.twitter); idVals <- sample(seq(N)); N1 <- round(0.6*N); N2 <- round(0.8*N)
+tr_t <- idVals[1:N1]; va_t <- idVals[(N1+1):N2]; te_t <- idVals[(N2+1) : N]
+```
+```{r,echo=FALSE}
+trlen <- c(length(tr_b),length(tr_n),length(tr_t))
+valen <- c(length(va_b),length(va_n),length(va_t))
+telen <- c(length(te_b),length(te_n),length(te_t))
+x <- data.frame(FileName = c(as.character(a$Filename[1:3]),"Train"),
+                TrainingSet = prettyNum(c(trlen,sum(trlen)),big.mark = ","),
+                ValidationSet = prettyNum(c(valen,sum(valen)),big.mark = ","),
+                TestingSet = prettyNum(c(telen,sum(telen)),big.mark = ",") )
+names(x) <- c("File Name", "Training Set (#lines) 60%", "Validation Set(#lines) 20%", "Testing Set(#lines) 20%")
+kable(x,align = "c")
+```
+
+Lets now sample the training set and carry out analysis on uni-gram, bi-gram and tri-grams. Since modeling these N-grams is a computationally expensive step, I would like to take the approach of sampling the training set - obtain some metrics - infer the statistics of the  population (ie., entire training set). A reasonable number to start with is a sample size of 100 lines of text and 100 such samples.
+
+## Uni-gram analysis
+Lets look at the unigrams and their frequency of occurence in the training sets. The way to go about is to sample a small subset of data from the training set - compute the unigrams and their counts - repeat it for many such small subsets - avareage across all sample sets.
+
+```{r,echo=FALSE}
+ngram_extract <- function(ngram_sample) {
+    # Pick the unique ngrams
+    names_vec <- unique(unlist(sapply(ngram_sample, function(x) names(x), USE.NAMES = F)))
+    
+    # Count the number of occurences 
+    ngram <- matrix(NA,length(names_vec),length(ngram_sample))
+    rownames(ngram) <- names_vec # unique ngram name
+    for(i in 1:length(ngram_sample)) { ngram[names(ngram_sample[[i]]),i] <- ngram_sample[[i]] }
+    colnames(ngram) <- 1:length(ngram_sample) # sample number
+    
+    # Sort the counts based on total count. 
+    nm <- apply(ngram,1,sum,na.rm = TRUE)
+    ngram <- ngram[order(nm,decreasing = TRUE),]
+    ngram
+}
+ngram_compute <- function(d1,d2,d3,tr1,tr2,tr3,s,ns,n, dictionary=character(0)) {
+    # d1, d2, d3 are the three data sets. tr1,tr2,tr3 are the corresponding training set indices
+    set.seed(432)
+    ngram_sample = list(0)
+    
+    # sample training set to collect respective samples from the training set.
+    tr1_s <- sample(tr1,s*ns); tr2_s <- sample(tr2,s*ns); tr3_s <- sample(tr3,s*ns)
+    
+    for (i in 1:ns) {
+        # Create sample set
+        x1 <- (i-1)*s+1 ; x2 <- i*s
+        train_set <- c(d1[tr1_s[x1:x2]],d2[tr2_s[x1:x2]],d3[tr3_s[x1:x2]])
+        
+        # compute n-grams
+        if(n==1) { # Unigrams
+            train_set <- unlist(train_set)
+        }
+        if(n==2) { # Bigrams
+            train_set <- sapply(train_set,function(x) x[x %in% dictionary]) # select words in dictionary
+            idx2 <- sapply(train_set, function(x) ifelse(length(x)>1,1,0)) # rows with atleast 2 words
+            train_set <- unlist(lapply(train_set[as.logical(idx2)],function(x) {
+                mapply(function(y,z) { paste(y,z) },x[1:(length(x)-1)],x[2:length(x)], USE.NAMES = FALSE)
+            }))
+        }
+        if(n==3) { # Trigrams
+            train_set <- sapply(train_set,function(x) x[x %in% dictionary]) # select words in dictionary
+            idx3 <- sapply(train_set, function(x) ifelse(length(x)>2,1,0)) # rows with atleast 3 words
+            train_set <- unlist(lapply(train_set[as.logical(idx3)],function(x) {
+                mapply(function(p,q,r) {paste(p,q,r)},x[1:(length(x)-2)],x[2:(length(x)-1)],x[3:length(x)], USE.NAMES = FALSE)
+            }))
+        }
+        
+        # count n-grams
+        ngram_sample[[i]] <- sapply(unique(train_set),function(x) sum(train_set==x)) 
+        #cat(" ", i)
+    }
+    ngram_sample
+}
+```
+
+```{r}
+con <- file("stop-words.txt","r");stopWords <- readLines(con);close(con)
+stopWords <- gsub("[[:punct:]]","",stopWords)
+
+s <- 100 # sample size - number of lines
+ns <- 100 # number of samples taken from the population without replacement
+unigram_sample <- ngram_compute(data.blogs,data.news,data.twitter,tr_b,tr_n,tr_t,s,ns,1) 
+unigrams <- ngram_extract(unigram_sample) # note the output is a matrix here.
+unigrams_without_stopwords <- unigrams[!(rownames(unigrams) %in% stopWords),]
+```
+
+### Statistical Inference
+Using the central limit theorem to infer the population statistics from sample statistics, the average counts from the samples estimates to the counts seen in population. Note the counts are not integers as they are averaged over all sample sets and hence they are estimates. 
+
+**The top 20 unigrams without stop words and their average counts are**
+```{r,echo=FALSE,eval=TRUE,warning=FALSE,message=FALSE}
+library(wordcloud)
+um <- rowMeans(unigrams_without_stopwords,na.rm=TRUE)
+round(um[1:20],1) 
+wordcloud(names(um),um,max.words=50,rot.per = 0.2, colors = brewer.pal(6,"Dark2"))
+```
+
+**Top 20 unigrams with stop words and their average counts are**
+```{r,echo=FALSE,eval=TRUE,warning=FALSE,message=FALSE}
+um <- rowMeans(unigrams,na.rm=TRUE)
+round(um[1:20],1) 
+wordcloud(names(um),um,max.words=100,scale = c(5,1),rot.per = 0.2, colors = brewer.pal(6,"Dark2"))
+```
+
+```{r,fig.width=10,fig.height=10,fig.align="center"}
+par(mfrow=c(1,2),mar=c(5,5,2,2))
+boxplot(t(unigrams[20:1,]),xlab = "frequency (Number of unigrams per 100 lines)", 
+        main = "Unigram frequencies",horizontal = T,las=1)
+boxplot(t(unigrams_without_stopwords[20:1,]),xlab = "frequency (Number of unigrams per 100 lines)", 
+        main = "Unigram frequencies without stop words",horizontal = T,las=1)
+```
+The stop words have very high frequency as they occur often and so they tend to mislead the relevant unigrams in the language. In the plot above distributions with and without the stop words are shown. Overall there are **51,698** unigrams. The top 10 contenders without the stop words are **time, people, day, good, back, year, make, love, years, work**. 
+
+### Dictionary selection
+```{r}
+u.csum <- sort(apply(unigrams,1,sum,na.rm=TRUE), decreasing = TRUE)
+round(c(sum(u.csum[1:140]), sum(u.csum[1:8000]))/sum(u.csum)*100,2)
+```
+
+In the test sample set considered with sample size of **100** lines and **100** such samples, there are **10,000** lines of text and **859,709** words. Data shows that in a frequency sorted word dictionary, only **140** unique words are neeed to cover about **50%** of all the word instances. Likewise only **8,000** unique words (15% of vocabulary) are needed to cover about **90%** of all word instances. Lets select the top **8,000** words to be in the dictionary to get 90% coverage.
+```{r}
+dictionary <- names(u.csum[1:8000])
+unigrams_90 <- unigrams[dictionary,]
+```
+
+## Bi-gram and Tri-gram analysis
+Lets look at the bigrams as well as trigrams and their frequency of occurence in the training sets. Here words that are not present in the dictionary are filtered out, however stop words are not filtered out. In my exploration I noticed this is the most important step to have **all** bigrams or trigrams generated from a selected dictionary while building the model. 
+
+```{r}
+s <- 100 # sample size - number of lines
+ns <- 100 # number of samples taken from the population without replacement
+bigram_sample <- ngram_compute(data.blogs,data.news,data.twitter,tr_b,tr_n,tr_t,s,ns,2,dictionary)
+trigram_sample <- ngram_compute(data.blogs,data.news,data.twitter,tr_b,tr_n,tr_t,s,ns,3,dictionary)
+
+bigrams <- ngram_extract(bigram_sample) # note the output is a matrix here 
+trigrams <- ngram_extract(trigram_sample) # note the output is a matrix here
+```
+
+There are **280,305** bigrams and **585,398** trigrams identified and their counts calculated. Infering the population statistics from the sample statistics, the average of the counts seen in the samples estimates to population counts. Based on this, the top contenders are as follows.
+
+**The top 20 bigrams and their average counts are**
+```{r,echo=FALSE,eval=TRUE,warning=FALSE,message=FALSE}
+bm <- rowMeans(bigrams,na.rm=TRUE)
+round(bm[1:20],1) 
+wordcloud(names(bm),bm,max.words=100,rot.per = 0.2, colors = brewer.pal(6,"Dark2"))
+```
+
+**The top 20 trigrams and their average counts are**
+```{r,echo=FALSE,eval=TRUE,warning=FALSE,message=FALSE}
+tm <- rowMeans(trigrams,na.rm=TRUE)
+round(tm[1:20],1) 
+wordcloud(names(tm),tm,max.words=30,scale=c(2,0.01),rot.per = 0.2, colors = brewer.pal(6,"Dark2"))
+```
+
+```{r,fig.width=10,fig.height=10}
+par(mfrow = c(1,2), mar=c(4,6,2,2))
+boxplot(t(bigrams[20:1,]),xlab = "frequency (of 100 lines)", main = "Bigram frequencies",horizontal = T,las=1)
+boxplot(t(trigrams[20:1,]),xlab = "frequency (of 100 lines)", main = "Trigram frequencies",horizontal = T,las=1)
+```
+
+Overall counts are listed in the table below.
+```{r,echo=FALSE}
+nw <- sum(sapply(c(data.blogs,data.news,data.twitter), function(x) length(x)))
+nw_tr <- sum(sapply(c(data.blogs[tr_b],data.news[tr_n],data.twitter[tr_t]), function(x) length(x)))
+x <- data.frame(c("Unigram", "Bigram", "Trigram"),
+                prettyNum(c(nw,(nw-1),(nw-2)),big.mark = ","),
+                prettyNum(c(nw_tr,(nw_tr-1),(nw_tr-2)),big.mark = ","),
+                prettyNum(c(sum(unlist(unigram_sample)), sum(unlist(bigram_sample)), 
+                            sum(unlist(trigram_sample))), big.mark = ","),
+                prettyNum(c(nrow(unigrams),nrow(bigrams),nrow(trigrams)), big.mark = ","),
+                prettyNum(c(nrow(unigrams_90),nrow(bigrams),nrow(trigrams)),big.mark = ",")
+                )
+names(x) <- c("N-gram", "Num ngrams in Entire data", "Num ngrams in Training set", "Num ngrams in Sampled Training set", "Num Unique ngrams", "Num Unique Selected ngrams")
+kable(x)
+```
+
+# Prediction model
+In this section various models would be computed and evaluated to select the best model. 
+
+## Model Building 
+Unigram, Bigram and Trigram models are built with Smoothing and Backoff approaches. Specifically 
+
+1. **Smoothing** : Laplace smoothing of adding 1 to all the counts is used here to calculate probabilities for those missing unigrams. Out of vocaboulary words are marked as "UNK"
+2. **Backoff** : Stupid backoff method to the next (n-1)gram approach has been considered to look for bigrams when trigrams do not exist in the model and look for unigrams when bigrams do not exist in the model. 
+
+### Unigram, Bigram and Trigram probabilities
+Compute unigram, bigram and trigram probability tables in this step. They are used to evaluate models and also predict the next word. 
+```{r}
+# Model from the sample counts
+u.csum <- apply(unigrams_90,1,sum,na.rm=TRUE)
+b.csum <- apply(bigrams,1,sum,na.rm=TRUE)
+t.csum <- apply(trigrams,1,sum,na.rm=TRUE)
+
+# Calculate unigram log likelihood
+N <- sum(u.csum) # Total number of tokens
+V <- length(dictionary) # Number of words in the dictionary
+u.count <- c(u.csum, "UNK" = 0) + 1 # Laplacian smoothing
+u.logpr <- log( u.count / (N+V) )
+
+# Calculate bigram log likelihood
+PQ <- names(b.csum)
+P <- sapply(strsplit(PQ, split = " "), function(x) x[1])
+b.logpr <- log(b.csum[PQ]/u.csum[P])
+b.count <- b.csum + 1
+
+# Calculate trigram log likelihood
+PQR <- names(t.csum)
+PQ <- sapply(strsplit(PQR, split = " "), function(x) paste(x[1:2],collapse = " "))
+t.logpr <- log(t.csum[PQR]/b.csum[PQ])
+
+# Save models to disk
+save(u.count,b.count, u.logpr,b.logpr,t.logpr,dictionary, file="TextModel.RData")
+save(unigram_sample,bigram_sample,trigram_sample, unigrams, bigrams, trigrams, unigrams_90, dictionary, 
+     u.count, b.count, u.logpr,b.logpr,t.logpr,file="TextModel_All.RData")
+```
+
+**Top 10 unigrams, bigrams and trigrams from the corpus are listed below**
+```{r,echo=FALSE,eval=TRUE}
+idu <- order(u.csum, decreasing = TRUE) 
+idb <- order(b.csum, decreasing = TRUE)
+idt <- order(t.csum, decreasing = TRUE)
+
+x <- data.frame("Unigrams" = names(u.logpr[idu[1:10]]), "Unigram log prob" = u.logpr[idu[1:10]],
+                "Bigrams" = names(b.logpr[idb[1:10]]), "Bigram log prob" = b.logpr[idb[1:10]],
+                "Trigrams" = names(t.logpr[idt[1:10]]), "Trigram log prob" = t.logpr[idt[1:10]], row.names = NULL)
+kable(x,align="c")
+```
+
+**A cursory check** : The log probability values calculated fall in between -inf to 0 that maps to probability values of 0 to 1 as expected.
+```{r,fig.width=10}
+summary(u.logpr)
+summary(b.logpr)
+summary(t.logpr)
+par(mfrow=c(1,3))
+hist(u.logpr,xlab="Unigram log prob", main= "Histogram of Unigram log prob",col = "blue")
+hist(b.logpr,xlab="Bigram log prob", main = "Histogram of Bigram log prob",col = "green")
+hist(t.logpr,xlab="Trigram log prob", main = "Histogram of Trigram log prob", col = "salmon")
+```
+
+## Model comparison and selection
+Lets compare the three models individually and as a group to see how best they work on the validation set. Perplexity would be calculated on the validation set and the one with the least perplexity wins.
+```{r,echo=FALSE}
+ngram_perplexity <- function(D,u.count,b.count,u.logpr,b.logpr,t.logpr,n) {
+    L <- length(D)
+    U <- names(u.logpr); B <- names(b.logpr); T <- names(t.logpr)
+    if(n==1) { # Unigram model alone
+        a <- u.logpr[D]
+        n_perp <- exp(-sum(a)/length(a))
+    }
+    if(n==2) { # Bigram model with backoff
+        # If bigram exists in bigram table then use bigram log probabiilty
+        # else if first word is present in dictionary then use smoothed conditional probability
+        #        else back off to unigram probabilities on both words.
+        YZ <- mapply(function(y,z) paste(y,z,collapse = " "), D[1:(L-1)], D[2:L], USE.NAMES = F)
+        a <- b.logpr[YZ] # bigram present in bigram table
+        na_id <- which(is.na(a))
+        Y <- D[na_id] # first word
+        Z <- D[na_id+1] # second word
+        id1 <- (Y != "UNK")
+        id2 <- (Y == "UNK")
+        a[na_id[id1]] <- log(1/u.count[Y[id1]]) # smoothed conditional probability
+        a[na_id[id2]] <- (u.logpr["UNK"] + u.logpr[Z[id2]] + log(0.4)) 
+    
+        names(a) <- YZ
+        n_perp <- exp(-sum(a)/length(a))
+    }
+    if(n==3) { # Trigram model with backoff
+        # If trigram exist in the trigram table then use trigram log probability
+        # else for each bigram 
+        #              if bigrams exists in bigram table then use bigram log probability
+        #              else if first word is present in dictionary then use smoothed conditional probability
+        #                    else back off to unigram probabilities across all three words
+        PQR <- mapply(function(p,q,r) paste(p,q,r,collapse = " "), D[1:(L-2)],D[2:(L-1)], D[3:L], USE.NAMES = F)
+        a <- t.logpr[PQR] # trigram present in trigram table
+        na_id <- which(is.na(a))
+        
+        PQ <- mapply(function(p,q) paste(p,q,collapse = " "), D[na_id], D[na_id + 1], USE.NAMES = F)
+        QR <- mapply(function(q,r) paste(q,r,collapse = " "), D[na_id + 1], D[na_id + 2], USE.NAMES = F)
+        P <- D[na_id]
+        Q <- D[na_id + 1]
+        R <- D[na_id + 2]
+        id1 <- (PQ %in% B) & (QR %in% B) 
+        id2 <- (!(PQ %in% B)) & (QR %in% B) 
+        id3 <- (PQ %in% B) & (!(QR %in% B))
+        id4 <- (!(PQ %in% B)) & (!(QR %in% B)) # fallback to unigram model
+        
+        a[na_id[id1]] <- log(1/b.count[PQ[id1]]) + log(1/b.count[QR[id1]]) + log(0.4)
+        
+        id2_1 <- id2 & (P != "UNK")
+        id2_2 <- id2 & (P == "UNK")
+        a[na_id[id2_1]] <- log(1/u.count[P[id2_1]])           + log(1/b.count[QR[id2_1]]) + log(0.4)
+        a[na_id[id2_2]] <- u.logpr["UNK"] + u.logpr[Q[id2_2]] + log(1/b.count[QR[id2_2]]) + log(0.4)
+        
+        id3_1 <- id3 & (Q != "UNK")
+        id3_2 <- id3 & (Q == "UNK")
+        a[na_id[id3_1]] <- log(1/b.count[PQ[id3_1]]) + log(1/u.count[Q[id3_1]])           + log(0.4)
+        a[na_id[id3_2]] <- log(1/b.count[PQ[id3_2]]) + u.logpr["UNK"] + u.logpr[R[id3_2]] + log(0.4)
+        
+        a[na_id[id4]] <- u.logpr[P[id4]] + u.logpr[Q[id4]] + u.logpr[R[id4]] + 2*log(0.4)
+
+        names(a) <- PQR
+        n_perp <- exp(-sum(a)/length(a))
+    }
+    n_perp
+}
+```
+
+```{r}
+val_set <- unlist(c(data.blogs[va_b[1:1000]],data.news[va_n[1:1000]],data.twitter[va_t[1:1000]]))
+val_set[!(val_set %in% dictionary)] <- "UNK" # mark items not present in dictionary as "UNK"
+u_perp <- ngram_perplexity(val_set,u.count,u.logpr,b.logpr,t.logpr,1) # Unigram model perplexity
+b_perp <- ngram_perplexity(val_set,u.count,u.logpr,b.logpr,t.logpr,2) # Bigram model perplexity
+t_perp <- ngram_perplexity(val_set,u.count,b.count,u.logpr,b.logpr,t.logpr,3) # Trigram model perplexity
+```
+```{r,echo=FALSE}
+x <- data.frame(Model = c("Unigram","Bigram","Trigram"),
+                Num = prettyNum(c(length(u.logpr), length(b.logpr), length(t.logpr)),big.mark = ","),
+                Perp = round(c(u_perp, b_perp, t_perp),2))
+names(x) <- c("Model Type", "Number of unique n-grams", "Perplexity (validation set)")
+kable(x,align="c")
+```
+
+The idea here is to use limited vocabulary unigram, bigram and trigram dictionaries and see what best we can do. While calculating perplexities the approach considered is to use log likelihoods from the model if the ngrams exist in the vocabulary, else fall back onto next (n-1)gram and trickle down to unigrams if nothing works.
+
+From the perplexity numbers, the model of choice would be **bigram model** as it has the least perplexity on validation data set.
+
+## Prediction on test set
+Lets run through sample sentences from the test set and predict the last word on each sentence.
+```{r,echo=FALSE}
+ngram_predict <- function(D) {
+    # Need u.count,b.count,u.logpr,b.logpr,dictionary
+    load("TextModel.RData")
+    # Assume data has already been tokenized using ngram_tokenize and filtered through dictionary. 
+    L <- length(D)
+    N = 10 # use last 10 words to predict next word.
+    S <- ifelse(L>N, L-N+1, 1) 
+    # If bigram exists in bigram table then use bigram log probabiilty
+    # else if first word is present in dictionary then use smoothed conditional probability
+    #        else back off to unigram probabilities on both words.
+    YZ <- mapply(function(y,z) paste(y,z,collapse = " "), D[S:(L-1)], D[(S+1):L], USE.NAMES = F)
+    a <- b.logpr[YZ] # bigram present in bigram table
+    na_id <- which(is.na(a))
+    Y <- D[na_id] # first word
+    Z <- D[na_id+1] # second word
+    id1 <- (Y != "UNK")
+    id2 <- (Y == "UNK")
+    a[na_id[id1]] <- log(1/u.count[Y[id1]]) # smoothed conditional probability
+    a[na_id[id2]] <- (u.logpr["UNK"] + u.logpr[Z[id2]] + log(0.4)) 
+    
+    # Map against dictionary    
+    P <- D[L]
+    Q <- dictionary
+    PQ <- mapply(function(p,q) paste(p,q,collapse = " "), P, Q, USE.NAMES = F)
+    b <- b.logpr[PQ]
+    na_id <- which(is.na(b))
+    # note smoothed conditional proabs gives out equal perplexity across all words in dictionary
+    b[na_id] <- (u.logpr[P] + u.logpr[Q[na_id]] + log(0.4)) 
+    
+    n_perp <- exp( -(sum(a)+b) / (N+1) )
+    
+    # pick the word with least perplexity
+    dictionary[which.min(n_perp)]
+}
+```
+
+```{r}
+test_set = c(data.blogs[te_b[1:10]],data.news[te_n[1:10]],data.twitter[te_t[1:10]])
+test_set_dict <- sapply(test_set, function(x) { x[!(x %in% dictionary)] <- "UNK"; x})
+pred <- unlist(sapply(test_set_dict,function(x) ngram_predict(x[1:(length(x)-1)]), USE.NAMES = FALSE))
+truth <- sapply(test_set,function(x) x[length(x)], USE.NAMES = F)
+
+x <- data.frame(Truth = truth,Predicted = pred)
+```
+
+# Appendix - Code
+
+## ngram_tokenize()
+Function that tokenizes lines of text into words
+```{r,eval=FALSE}
+ngram_tokenize <- function(filename, n=-1L) {
+    # Read file
+    con <- file(filename,"r");raw <- readLines(con,n);close(con) 
+    
+    # Remove punctuation, convert to lower case and split into words.
+    raw <- lapply(raw, function(x) { tolower(gsub("[[:punct:]]","", x)) })
+    raw <- lapply(raw, function(x) unlist(strsplit(x,split=" ")) ) # into words
+    raw <- lapply(raw, function(x) { gsub("[0-9]","",x)}) # remove numbers
+    raw <- lapply(raw, function(x) x[!(x=="")]) # remove blanks
+
+    # Apply profanity filter
+    con <- file("bad-words.txt","r");profane <- readLines(con);close(con)
+    raw <- lapply(raw, function(x) { x[!(x %in% profane[-1])] })
+}
+```
+
+## ngram_extract()
+Function to consolidate counts of N-grams from each sample into counts of unique N-grams 
+```{r,eval=FALSE}
+ngram_extract <- function(ngram_sample) {
+    # Pick the unique ngrams
+    names_vec <- unique(unlist(sapply(ngram_sample, function(x) names(x), USE.NAMES = F)))
+    
+    # Count the number of occurences 
+    ngram <- matrix(NA,length(names_vec),length(ngram_sample))
+    rownames(ngram) <- names_vec # unique ngram name
+    for(i in 1:length(ngram_sample)) { ngram[names(ngram_sample[[i]]),i] <- ngram_sample[[i]] }
+    colnames(ngram) <- 1:length(ngram_sample) # sample number
+    
+    # Sort the counts based on total count. 
+    nm <- apply(ngram,1,sum,na.rm = TRUE)
+    ngram <- ngram[order(nm,decreasing = TRUE),]
+    ngram
+}
+```
+
+## ngram_compute()
+Function to compute counts of ngrams from a given data set sampled into "ns" samples of size "s"
+```{r, eval = FALSE}
+ngram_compute <- function(d1,d2,d3,tr1,tr2,tr3,s,ns,n, dictionary=character(0)) {
+    # d1, d2, d3 are the three data sets. tr1,tr2,tr3 are the corresponding training set indices
+    set.seed(432)
+    ngram_sample = list(0)
+    
+    # sample training set to collect respective samples from the training set.
+    tr1_s <- sample(tr1,s*ns); tr2_s <- sample(tr2,s*ns); tr3_s <- sample(tr3,s*ns)
+    
+    for (i in 1:ns) {
+        # Create sample set
+        x1 <- (i-1)*s+1 ; x2 <- i*s
+        train_set <- c(d1[tr1_s[x1:x2]],d2[tr2_s[x1:x2]],d3[tr3_s[x1:x2]])
+        
+        # compute n-grams
+        if(n==1) { # Unigrams
+            train_set <- unlist(train_set)
+        }
+        if(n==2) { # Bigrams
+            train_set <- sapply(train_set,function(x) x[x %in% dictionary]) # select words in dictionary
+            idx2 <- sapply(train_set, function(x) ifelse(length(x)>1,1,0)) # rows with atleast 2 words
+            train_set <- unlist(lapply(train_set[as.logical(idx2)],function(x) {
+                mapply(function(y,z) { paste(y,z) },x[1:(length(x)-1)],x[2:length(x)], USE.NAMES = FALSE)
+            }))
+        }
+        if(n==3) { # Trigrams
+            train_set <- sapply(train_set,function(x) x[x %in% dictionary]) # select words in dictionary
+            idx3 <- sapply(train_set, function(x) ifelse(length(x)>2,1,0)) # rows with atleast 3 words
+            train_set <- unlist(lapply(train_set[as.logical(idx3)],function(x) {
+                mapply(function(p,q,r) {paste(p,q,r)},x[1:(length(x)-2)],x[2:(length(x)-1)],x[3:length(x)], USE.NAMES = FALSE)
+            }))
+        }
+        
+        # count n-grams
+        ngram_sample[[i]] <- sapply(unique(train_set),function(x) sum(train_set==x)) 
+        #cat(" ", i)
+    }
+    ngram_sample
+}
+```
+
+## ngram_perplexity()
+Function to compute perplexity of a test data set
+```{r,eval=FALSE}
+ngram_perplexity <- function(D,u.count,b.count,u.logpr,b.logpr,t.logpr,n) {
+    L <- length(D)
+    U <- names(u.logpr); B <- names(b.logpr); T <- names(t.logpr)
+    if(n==1) { # Unigram model alone
+        a <- u.logpr[D]
+        n_perp <- exp(-sum(a)/length(a))
+    }
+    if(n==2) { # Bigram model with backoff
+        # If bigram exists in bigram table then use bigram log probabiilty
+        # else if first word is present in dictionary then use smoothed conditional probability
+        #        else back off to unigram probabilities on both words.
+        YZ <- mapply(function(y,z) paste(y,z,collapse = " "), D[1:(L-1)], D[2:L], USE.NAMES = F)
+        a <- b.logpr[YZ] # bigram present in bigram table
+        na_id <- which(is.na(a))
+        Y <- D[na_id] # first word
+        Z <- D[na_id+1] # second word
+        id1 <- (Y != "UNK")
+        id2 <- (Y == "UNK")
+        a[na_id[id1]] <- log(1/u.count[Y[id1]]) # smoothed conditional probability
+        a[na_id[id2]] <- (u.logpr["UNK"] + u.logpr[Z[id2]] + log(0.4)) 
+    
+        names(a) <- YZ
+        n_perp <- exp(-sum(a)/length(a))
+    }
+    if(n==3) { # Trigram model with backoff
+        # If trigram exist in the trigram table then use trigram log probability
+        # else for each bigram 
+        #              if bigrams exists in bigram table then use bigram log probability
+        #              else if first word is present in dictionary then use smoothed conditional probability
+        #                    else back off to unigram probabilities across all three words
+        PQR <- mapply(function(p,q,r) paste(p,q,r,collapse = " "), D[1:(L-2)],D[2:(L-1)], D[3:L], USE.NAMES = F)
+        a <- t.logpr[PQR] # trigram present in trigram table
+        na_id <- which(is.na(a))
+        
+        PQ <- mapply(function(p,q) paste(p,q,collapse = " "), D[na_id], D[na_id + 1], USE.NAMES = F)
+        QR <- mapply(function(q,r) paste(q,r,collapse = " "), D[na_id + 1], D[na_id + 2], USE.NAMES = F)
+        P <- D[na_id]
+        Q <- D[na_id + 1]
+        R <- D[na_id + 2]
+        id1 <- (PQ %in% B) & (QR %in% B) 
+        id2 <- (!(PQ %in% B)) & (QR %in% B) 
+        id3 <- (PQ %in% B) & (!(QR %in% B))
+        id4 <- (!(PQ %in% B)) & (!(QR %in% B)) # fallback to unigram model
+        
+        a[na_id[id1]] <- log(1/b.count[PQ[id1]]) + log(1/b.count[QR[id1]]) + log(0.4)
+        
+        id2_1 <- id2 & (P != "UNK")
+        id2_2 <- id2 & (P == "UNK")
+        a[na_id[id2_1]] <- log(1/u.count[P[id2_1]])           + log(1/b.count[QR[id2_1]]) + log(0.4)
+        a[na_id[id2_2]] <- u.logpr["UNK"] + u.logpr[Q[id2_2]] + log(1/b.count[QR[id2_2]]) + log(0.4)
+        
+        id3_1 <- id3 & (Q != "UNK")
+        id3_2 <- id3 & (Q == "UNK")
+        a[na_id[id3_1]] <- log(1/b.count[PQ[id3_1]]) + log(1/u.count[Q[id3_1]])           + log(0.4)
+        a[na_id[id3_2]] <- log(1/b.count[PQ[id3_2]]) + u.logpr["UNK"] + u.logpr[R[id3_2]] + log(0.4)
+        
+        a[na_id[id4]] <- u.logpr[P[id4]] + u.logpr[Q[id4]] + u.logpr[R[id4]] + 2*log(0.4)
+
+        names(a) <- PQR
+        n_perp <- exp(-sum(a)/length(a))
+    }
+    n_perp
+}
+```
+
+## ngram_predict()
+Function to predict the next word given a sequence of words
+```{r,eval=FALSE}
+ngram_predict <- function(D) {
+    # Need u.count,b.count,u.logpr,b.logpr,dictionary
+    load("TextModel.RData")
+    # Assume data has already been tokenized using ngram_tokenize and filtered through dictionary. 
+    L <- length(D)
+    N = 10 # use last 10 words to predict next word.
+    S <- ifelse(L>N, L-N+1, 1) 
+    # If bigram exists in bigram table then use bigram log probabiilty
+    # else if first word is present in dictionary then use smoothed conditional probability
+    #        else back off to unigram probabilities on both words.
+    YZ <- mapply(function(y,z) paste(y,z,collapse = " "), D[S:(L-1)], D[(S+1):L], USE.NAMES = F)
+    a <- b.logpr[YZ] # bigram present in bigram table
+    na_id <- which(is.na(a))
+    Y <- D[na_id] # first word
+    Z <- D[na_id+1] # second word
+    id1 <- (Y != "UNK")
+    id2 <- (Y == "UNK")
+    a[na_id[id1]] <- log(1/u.count[Y[id1]]) # smoothed conditional probability
+    a[na_id[id2]] <- (u.logpr["UNK"] + u.logpr[Z[id2]] + log(0.4)) 
+    
+    # Map against dictionary    
+    P <- D[L]
+    Q <- dictionary
+    PQ <- mapply(function(p,q) paste(p,q,collapse = " "), P, Q, USE.NAMES = F)
+    b <- b.logpr[PQ]
+    na_id <- which(is.na(b))
+    # note smoothed conditional proabs gives out equal perplexity across all words in dictionary
+    b[na_id] <- (u.logpr[P] + u.logpr[Q[na_id]] + log(0.4)) 
+    
+    n_perp <- exp( -(sum(a)+b) / (N+1) )
+    
+    # pick the word with least perplexity
+    dictionary[which.min(n_perp)]
+}
+```
+
+Code to download files
+```{r,eval=FALSE}
+fileurl <- "http://www.cs.cmu.edu/~biglou/resources/bad-words.txt"
+if(!file.exists("bad-words.txt")) { download.file(fileurl,destfile = "bad-words.txt",method="curl") }
+
+fileurl <- "http://jmlr.csail.mit.edu/papers/volume5/lewis04a/a11-smart-stop-list/english.stop"
+if(!file.exists("stop-words.txt")) { download.file(fileurl,destfile = "stop-words.txt", method="curl") }
+```
+
+
+```{r}
+date()
+```
