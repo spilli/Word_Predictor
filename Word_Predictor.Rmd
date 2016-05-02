@@ -6,12 +6,12 @@ output: html_document
 ---
 
 # Summary
-N-gram probabilities are used to predict the next word given a sequence of words in a sentence. In this paper, first an exploratory data analysis is carried out on the text data obtained from various online web sources - news, blogs and twitter. Second N-gram probabilities are calculated and associated models are built to predict the next word given a sequence of words. Finally the models are compared and the model with least perplexity is chosen. The model built out of this project would be to use in a shiny app that simulates a predictive keyboard. 
+N-gram probabilities are used to predict the next word given a sequence of words in a sentence. In this paper, first an exploratory data analysis is carried out on the text data obtained from various online web sources - news, blogs and twitter. Second N-gram probabilities are calculated and associated models are built to predict the next word given a sequence of words. Finally the models are compared and the model with least perplexity is chosen. The model built out of this project would ultimately be to use in a shiny app that simulates a predictive keyboard. 
 
 # Exploratory data analysis
 In this section exploratory data analysis is carried out to undersand word, bigram and trigram frequencies.
 
-## Data clean up and pre processing
+## Data clean up and pre-processing
 Lets load the data into R session and carry out the follwing pre processing steps.
 
 1. Split the raw text sentences into words
@@ -86,18 +86,20 @@ N <- length(data.twitter); idVals <- sample(seq(N)); N1 <- round(0.6*N); N2 <- r
 tr_t <- idVals[1:N1]; va_t <- idVals[(N1+1):N2]; te_t <- idVals[(N2+1) : N]
 ```
 ```{r,echo=FALSE}
+lenread <- c(length(data.blogs),length(data.news),length(data.twitter))
 trlen <- c(length(tr_b),length(tr_n),length(tr_t))
 valen <- c(length(va_b),length(va_n),length(va_t))
 telen <- c(length(te_b),length(te_n),length(te_t))
 x <- data.frame(FileName = c(as.character(a$Filename[1:3]),"Total"),
+                LenRead = prettyNum(c(lenread,sum(lenread)),big.mark = ","),
                 TrainingSet = prettyNum(c(trlen,sum(trlen)),big.mark = ","),
                 ValidationSet = prettyNum(c(valen,sum(valen)),big.mark = ","),
                 TestingSet = prettyNum(c(telen,sum(telen)),big.mark = ",") )
-names(x) <- c("File Name", "Training Set (#lines) 60%", "Validation Set(#lines) 20%", "Testing Set(#lines) 20%")
+names(x) <- c("File Name", "Num lines read", "Training Set (#lines) 60%", "Validation Set(#lines) 20%", "Testing Set(#lines) 20%")
 kable(x,align = "c")
 ```
 
-Lets now sample the training set and carry out analysis on uni-gram, bi-gram and tri-grams. Since modeling these N-grams is a computationally expensive step, I would like to take the approach of sampling the training set - obtain some metrics - infer the statistics of the  population (ie., entire training set). A reasonable number to start with is a sample size of 100 lines of text and 100 such samples.
+Lets now sample the training set and carry out analysis on uni-gram, bi-gram and tri-grams. Since modeling these N-grams is a computationally expensive step, I would like to take the approach of sampling the training set - obtain some metrics - infer the statistics of the  population (ie., entire training set). A reasonable number to start with is a sample size of 100 lines of text and 100 such samples for a total of *10,000** lines of text.
 
 ## Uni-gram analysis
 Lets look at the unigrams and their frequency of occurence in the training sets. The way to go about is to sample a small subset of data from the training set - compute the unigrams and their counts - repeat it for many such small subsets - avareage across all sample sets.
@@ -175,23 +177,23 @@ Using the central limit theorem to infer the population statistics from sample s
 **The top 10 unigrams without stop words and their average counts are**
 ```{r,echo=FALSE,eval=TRUE,warning=FALSE,message=FALSE}
 library(wordcloud)
-um <- sort(rowMeans(unigrams_without_stopwords,na.rm=TRUE),decreasing = TRUE)
+um <- sort(apply(unigrams_without_stopwords,1,sum,na.rm=TRUE),decreasing = TRUE)
 round(um[1:10],1) 
-wordcloud(names(um),um,max.words=50,rot.per = 0.2, colors = brewer.pal(6,"Dark2"))
+wordcloud(names(um),um,max.words=30, scale = c(4,1),rot.per = 0.2, colors = brewer.pal(6,"Dark2"))
 ```
 
 **Top 10 unigrams with stop words and their average counts are**
 ```{r,echo=FALSE,eval=TRUE,warning=FALSE,message=FALSE}
-um <- sort(rowMeans(unigrams,na.rm=TRUE), decreasing = TRUE)
+um <- sort(apply(unigrams,1,sum,na.rm=TRUE), decreasing = TRUE)
 round(um[1:10],1) 
-wordcloud(names(um),um,max.words=50,scale = c(5,1),rot.per = 0.2, colors = brewer.pal(6,"Dark2"))
+wordcloud(names(um),um,max.words=150,scale = c(4,1),rot.per = 0.2, colors = brewer.pal(6,"Dark2"))
 ```
 
-```{r,fig.width=10,fig.height=10,fig.align="center"}
+```{r,fig.width=10,fig.height=6,fig.align="center"}
 par(mfrow=c(1,2),mar=c(5,5,2,2))
-boxplot(t(unigrams[20:1,]),xlab = "frequency (Number of unigrams per 100 lines)", 
+boxplot(t(unigrams[10:1,]),xlab = "frequency (Number of unigrams per 100 lines)", 
         main = "Unigram frequencies",horizontal = T,las=1)
-boxplot(t(unigrams_without_stopwords[20:1,]),xlab = "frequency (Number of unigrams per 100 lines)", 
+boxplot(t(unigrams_without_stopwords[10:1,]),xlab = "frequency (Number of unigrams per 100 lines)", 
         main = "Unigram frequencies without stop words",horizontal = T,las=1)
 ```
 The stop words have very high frequency as they occur often and so they tend to mislead the relevant unigrams in the language. In the plot above distributions with and without the stop words are shown. Overall there are **51,698** unigrams. The top 10 contenders without the stop words are **time, people, day, good, back, year, make, love, years, work**. 
@@ -223,24 +225,24 @@ trigrams <- ngram_extract(trigram_sample) # note the output is a matrix here
 
 There are **280,305** bigrams and **585,398** trigrams identified and their counts calculated. Infering the population statistics from the sample statistics, the average of the counts seen in the samples estimates to population counts. Based on this, the top contenders are as follows.
 
-**The top 10 bigrams and their average counts are**
+**The top 10 bigrams and their total counts are**
 ```{r,echo=FALSE,eval=TRUE,warning=FALSE,message=FALSE}
-bm <- sort(rowMeans(bigrams,na.rm=TRUE),decreasing = TRUE)
+bm <- sort(apply(bigrams,1,sum,na.rm=TRUE),decreasing = TRUE)
 round(bm[1:10],1) 
-wordcloud(names(bm),bm,max.words=100,rot.per = 0.2, colors = brewer.pal(6,"Dark2"))
+wordcloud(names(bm),bm,max.words=100,scale=c(4,0.5),rot.per = 0.2, colors = brewer.pal(6,"Dark2"))
 ```
 
-**The top 10 trigrams and their average counts are**
+**The top 10 trigrams and their total counts are**
 ```{r,echo=FALSE,eval=TRUE,warning=FALSE,message=FALSE}
-tm <- sort(rowMeans(trigrams,na.rm=TRUE),decreasing = TRUE)
+tm <- sort(apply(trigrams,1,sum,na.rm=TRUE),decreasing = TRUE)
 round(tm[1:10],1) 
-wordcloud(names(tm),tm,max.words=100,scale=c(2,0.1),rot.per = 0.3, colors = brewer.pal(6,"Dark2"))
+wordcloud(names(tm),tm,max.words=30,scale=c(4,0.2),rot.per = 0.3, colors = brewer.pal(6,"Dark2"))
 ```
 
-```{r,fig.width=10,fig.height=10}
+```{r,fig.width=10,fig.height=6,fig.align="center"}
 par(mfrow = c(1,2), mar=c(4,6,2,2))
-boxplot(t(bigrams[20:1,]),xlab = "frequency (of 100 lines)", main = "Bigram frequencies",horizontal = T,las=1)
-boxplot(t(trigrams[20:1,]),xlab = "frequency (of 100 lines)", main = "Trigram frequencies",horizontal = T,las=1)
+boxplot(t(bigrams[10:1,]),xlab = "frequency (of 100 lines)", main = "Bigram frequencies",horizontal = T,las=1)
+boxplot(t(trigrams[10:1,]),xlab = "frequency (of 100 lines)", main = "Trigram frequencies",horizontal = T,las=1)
 ```
 
 Overall counts are listed in the table below.
@@ -255,7 +257,7 @@ x <- data.frame(c("Unigram", "Bigram", "Trigram"),
                 prettyNum(c(nrow(unigrams),nrow(bigrams),nrow(trigrams)), big.mark = ","),
                 prettyNum(c(nrow(unigrams_90),nrow(bigrams),nrow(trigrams)),big.mark = ",")
                 )
-names(x) <- c("N-gram", "Num ngrams in Entire data", "Num ngrams in Training set", "Num ngrams in Sampled Training set", "Num Unique ngrams", "Num Unique Selected ngrams")
+names(x) <- c("N-gram", "Num ngrams in Entire data read(150k likes)", "Num ngrams in Training set(90k lines)", "Num ngrams in Sampled Training set(10k lines)", "Num Unique ngrams", "Num Unique Selected ngrams")
 kable(x)
 ```
 
@@ -299,7 +301,7 @@ save(unigram_sample,bigram_sample,trigram_sample, unigrams, bigrams, trigrams, u
      u.count, b.count, u.logpr,b.logpr,t.logpr,file="TextModel_All.RData")
 ```
 
-The number of tokens in the model **N = 859,709** and the number of words in the dictionary **V = 8000**.
+The number of tokens in the model **N = 771,345** and the number of words in the dictionary **V = 8,000**.
 
 **Top 10 unigrams, bigrams and trigrams from the corpus are listed below**
 ```{r,echo=FALSE,eval=TRUE}
@@ -309,13 +311,13 @@ idt <- order(t.csum, decreasing = TRUE)
 
 x <- data.frame("Unigrams" = names(u.logpr[idu[1:10]]), 
                 "Unigram Counts" = u.csum[idu[1:10]], 
-                "Unigram log prob" = u.logpr[idu[1:10]],
+                "Unigram log prob" = round(u.logpr[idu[1:10]],2),
                 "Bigrams" = names(b.logpr[idb[1:10]]), 
                 "Bigram Counts" = b.csum[idb[1:10]],
-                "Bigram log prob" = b.logpr[idb[1:10]],
+                "Bigram log prob" = round(b.logpr[idb[1:10]],2),
                 "Trigrams" = names(t.logpr[idt[1:10]]), 
                 "Trigram Counts" = t.csum[idt[1:10]],
-                "Trigram log prob" = t.logpr[idt[1:10]], row.names = NULL)
+                "Trigram log prob" = round(t.logpr[idt[1:10]],2), row.names = NULL)
 kable(x,align="c")
 ```
 
@@ -415,10 +417,10 @@ kable(x,align="c")
 
 The idea here is to use limited vocabulary unigram, bigram and trigram dictionaries and see what best we can do. While calculating perplexities the approach considered is to use log likelihoods from the model if the ngrams exist in the vocabulary, else fall back onto next (n-1)gram and trickle down to unigrams if nothing works.
 
-From the perplexity numbers, the model of choice would be **bigram model** as it has the least perplexity on validation data set.
+From the perplexity numbers, the model of choice would be **bigram model - with smoothing and backoff** as it has the least perplexity on validation data set.
 
-## Prediction on test set
-Lets run through sample sentences from the test set and predict the last word on each sentence.
+## Example prediction
+Lets run through example test cases
 ```{r,echo=FALSE}
 ngram_predict <- function(D) {
     # Need u.count,b.count,u.logpr,b.logpr,dictionary
@@ -457,17 +459,19 @@ ngram_predict <- function(D) {
 ```
 
 ```{r}
-test_set = c(data.blogs[te_b[1:10]],data.news[te_n[1:10]],data.twitter[te_t[1:10]])
-test_set_dict <- sapply(test_set, function(x) { x[!(x %in% dictionary)] <- "UNK"; x})
-pred <- unlist(sapply(test_set_dict,function(x) ngram_predict(x[1:(length(x)-1)]), USE.NAMES = FALSE))
-truth <- sapply(test_set,function(x) x[length(x)], USE.NAMES = F)
-
-x <- data.frame(Truth = truth,Predicted = pred)
+ngram_predict(tolower(unlist(strsplit("I Love",split = " "))))
+ngram_predict(tolower(unlist(strsplit("This looks",split = " "))))
+ngram_predict(tolower(unlist(strsplit("This looks like",split = " "))))
+ngram_predict(tolower(unlist(strsplit("This looks like a",split = " "))))
+ngram_predict(tolower(unlist(strsplit("This looks like a lot",split = " "))))
+ngram_predict(tolower(unlist(strsplit("of course thank",split = " "))))
 ```
+
+It appers that the model is more tuned towards predicting stop words as they are more frequent. Next step would be to tweak the model to predict better.
 
 # Appendix - Code
 
-## ngram_tokenize()
+### ngram_tokenize()
 Function that tokenizes lines of text into words
 ```{r,eval=FALSE}
 ngram_tokenize <- function(filename, n=-1L) {
@@ -486,7 +490,7 @@ ngram_tokenize <- function(filename, n=-1L) {
 }
 ```
 
-## ngram_extract()
+### ngram_extract()
 Function to consolidate counts of N-grams from each sample into counts of unique N-grams 
 ```{r,eval=FALSE}
 ngram_extract <- function(ngram_sample) {
@@ -506,7 +510,7 @@ ngram_extract <- function(ngram_sample) {
 }
 ```
 
-## ngram_compute()
+### ngram_compute()
 Function to compute counts of ngrams from a given data set sampled into "ns" samples of size "s"
 ```{r, eval = FALSE}
 ngram_compute <- function(d1,d2,d3,tr1,tr2,tr3,s,ns,n, dictionary=character(0)) {
@@ -549,8 +553,8 @@ ngram_compute <- function(d1,d2,d3,tr1,tr2,tr3,s,ns,n, dictionary=character(0)) 
 }
 ```
 
-## ngram_perplexity()
-Function to compute perplexity of a test data set
+### ngram_perplexity()
+Function to compute perplexity of a test data set. Loops are unrolled for fast performance
 ```{r,eval=FALSE}
 ngram_perplexity <- function(D,u.count,b.count,u.logpr,b.logpr,t.logpr,n) {
     L <- length(D)
@@ -617,7 +621,7 @@ ngram_perplexity <- function(D,u.count,b.count,u.logpr,b.logpr,t.logpr,n) {
 }
 ```
 
-## ngram_predict()
+### ngram_predict()
 Function to predict the next word given a sequence of words
 ```{r,eval=FALSE}
 ngram_predict <- function(D) {
@@ -656,6 +660,7 @@ ngram_predict <- function(D) {
 }
 ```
 
+### Others
 Code to download files
 ```{r,eval=FALSE}
 fileurl <- "http://www.cs.cmu.edu/~biglou/resources/bad-words.txt"
