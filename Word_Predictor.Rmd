@@ -94,9 +94,10 @@ ngram_tokenize <- function(data) {
 Lets look at the unigrams and their frequency of occurence in the training sets. The way to go about is to sample a small subset of data from the training set - compute the unigrams and their counts - repeat it for many such small subsets - average across all sample sets. To start with a sample size of **100** lines of text and **100** such samples are chosen. This equates to **10,000** lines of text.
 
 ```{r,echo=FALSE}
-ngram_compute <- function(data,n,mat = 0) {
+ngram_compute <- function(data,n,mat = 0,dictionary = character()) {
     data <- ngram_tokenize(data) # Tokenize the data
     # Create n-grams
+    if(n>1) { data <- sapply(data,function(x) x[x %in% dictionary]) } # select words in dictionary
     if(n==2) { # Bigrams
         idx2 <- sapply(data, function(x) ifelse(length(x)>1,TRUE,FALSE)) # rows with atleast 2 words
         data <- lapply(data[idx2],function(x) { paste(x[1:(length(x)-1)],x[2:length(x)]) })
@@ -200,8 +201,9 @@ Lets buid Unigram, Bigram and Trigram models on a larger data set. The following
 ```{r,echo=TRUE,eval=FALSE}
 M <- 100000
 u.count <- ngram_compute(train[1:M],n=1)   # Unigram model
-b.count <- ngram_compute(train[1:M],n=2)   # Bigram model
-t.count <- ngram_compute(train[1:M],n=3)   # Trigram model
+dict <- names(u.count[u.count>2])    # Dictionary
+b.count <- ngram_compute(train[1:M],n=2,dictionary = dict)   # Bigram model
+t.count <- ngram_compute(train[1:M],n=3,dictionary = dict)   # Trigram model
 save(u.count,b.count,t.count,file="Model_All.RData")
 
 # u.model <- data.frame(w1 = names(u.count), count = u.count, row.names = NULL)
@@ -229,17 +231,17 @@ Compute unigram, bigram and trigram probability tables in this step. They are us
 ```{r}
 # Calculate unigram log likelihood
 N <- sum(u.count) # Total number of tokens
-V <- nrow(u.count) # Number of words in the dictionary
-u.model <- rbind(as.matrix(u.count),"UNK" = 0) + 1 # Laplacian smoothing
+V <- length(dict) # Number of words in the dictionary
+u.model <- rbind(as.matrix(u.count[dict]),"UNK" = 0) + 1 # Laplacian smoothing
 u.model <- cbind(u.model,log(u.model[,1]/(N+V)) ); colnames(u.model) <- c("count","MLE")
 
 # Calculate bigram log likelihood
-PQ <- rownames(b.count)
+PQ <- names(b.count)
 P <- sapply(strsplit(PQ, split = " "), function(x) x[1])
 bm.1 <- as.matrix(b.count) + 1 # Laplacian smoothing
 bm.1 <- cbind(bm.1,log(bm.1[,1]/u.model[P,1]) ) # "Word1" "Word2"
 bm.2 <- as.matrix(cbind(rep(1,V),log(1/u.model[1:V,1]))) # "Word1" "UNK"
-rownames(bm.2) <- sapply(rownames(u.count),function(x) paste(x,"UNK",collapse = " "),USE.NAMES = FALSE)
+rownames(bm.2) <- paste(dict,"UNK")
 bm.3 <- as.matrix(cbind(1,u.model["UNK",2])); rownames(bm.3) <- "UNK UNK" # "UNK" "UNK"
 b.model <- rbind(bm.1,bm.2,bm.3); colnames(b.model) <- c("count","MLE")
 
@@ -361,18 +363,16 @@ From the perplexity numbers, the model of choice would be **bigram model - with 
 Lets run through example test cases
 ```{r,echo=FALSE}
 ngram_predict <- function(data) {
-    load("Model.RData")
+    #load("Model.RData")
     
     D <- ngram_tokenize(data) # Tokenize
     D <- unlist(D); D[!(D %in% rownames(u.model))] <- "UNK" # mark the ones not in dictionary as UNK
     L <- length(D)
     
-    if(L==0) { W1 <- "UNK"; W2 <- "UNK"}
-    if(L==1) { W1 <- "UNK"; W2 <- D[L] }
-    if(L>1) { W1 <- D[L-1]; W2 <- D[L] }
-    P <- rep(W1,length(R)) 
-    Q <- rep(W2,length(R))
-    R <- rownames(u.model); R <- R[1:(length(R)-1)] # Map against dictionary
+    if(L==0) { P <- "UNK"; Q <- "UNK"}
+    if(L==1) { P <- "UNK"; Q <- D[L] }
+    if(L>1) { P <- D[L-1]; Q <- D[L] }
+    R <- rownames(u.model); R <- R[-length(R)] # Map against dictionary
     
     PQR <- paste(P,Q,R)
     id1 <- (PQR %in% rownames(t.model))
@@ -385,10 +385,10 @@ ngram_predict <- function(data) {
     
     a <- matrix(NA,length(PQR),1)
     if(sum(id1)>0) { a[id1] <- t.model[PQR[id1],2] }
-    if(sum(id2)>0) { a[id2] <- b.model[PQ[id2],2] + b.model[QR[id2],2] + log(2*0.4) }
-    if(sum(id3)>0) { a[id3] <- b.model[PQ[id3],2] + u.model[Q[id3],2] + u.model[R[id3],2] + log(3*0.4) }
-    if(sum(id4)>0) { a[id4] <- u.model[P[id4],2] + u.model[Q[id4],2] + b.model[QR[id4],2] + log(3*0.4) }
-    if(sum(id5)>0) { a[id5] <- u.model[P[id5],2] + u.model[Q[id5],2] + u.model[R[id5],2] + log(4*0.4) }
+    if(sum(id2)>0) { a[id2] <- b.model[PQ,2] + b.model[QR[id2],2] + log(2*0.4) }
+    if(sum(id3)>0) { a[id3] <- b.model[PQ,2] + u.model[Q,2] + u.model[R[id3],2] + log(3*0.4) }
+    if(sum(id4)>0) { a[id4] <- u.model[P,2] + u.model[Q,2] + b.model[QR[id4],2] + log(3*0.4) }
+    if(sum(id5)>0) { a[id5] <- u.model[P,2] + u.model[Q,2] + u.model[R[id5],2] + log(4*0.4) }
     
     pred_word <- rownames(u.model)[which.max(a)]
 }
@@ -399,7 +399,7 @@ df <- data.frame()
 for(i in 1:100) {
     data <- unlist(strsplit(test[i],split = " "))
     newdata <- paste(data[1:(length(data)-1)],collapse = " ")
-    prev <- ifelse(length(data)>3,data[(length(data)-1)],"UNK")
+    prev <- ifelse(length(data)>2,data[(length(data)-1)],"UNK")
     truth <- data[length(data)]
     pred <- ngram_predict(newdata)
     df <- rbind(df, data.frame(prev = prev, truth = truth, pred = pred))
