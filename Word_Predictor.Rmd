@@ -323,31 +323,6 @@ trigram_mle <- function(D,u.model,b.model,t.model,flag = 0) {
     rownames(a) <- PQR; colnames(a) <- "MLE"
     a
 }
-backoff_mle <- function(D,u.model,b.model,t.model,flag = 0) {
-    L <- length(D)
-    R <- rownames(u.model); R <- R[1:(length(R)-1)] # Map against dictionary
-    P <- rep(D[L-1],length(R)) 
-    Q <- rep(D[L],length(R))
-    
-    PQR <- paste(P,Q,R)
-    id1 <- (PQR %in% rownames(t.model))
-    PQ <- paste(P,Q)
-    QR <- paste(Q,R)
-    id2 <- (!id1) & (PQ %in% rownames(b.model))    &   (QR %in% rownames(b.model))
-    id3 <- (!id1) & (PQ %in% rownames(b.model))    & (!(QR %in% rownames(b.model)))
-    id4 <- (!id1) & (!(PQ %in% rownames(b.model))) &   (QR %in% rownames(b.model))
-    id5 <- (!id1) & (!(PQ %in% rownames(b.model))) & (!(QR %in% rownames(b.model)))
-    
-    a <- matrix(NA,length(PQR),1)
-    if(sum(id1)>0) { a[id1] <- t.model[PQR[id1],2] }
-    if(sum(id2)>0) { a[id2] <- b.model[PQ[id2],2] + b.model[QR[id2],2] + log(2*0.4) }
-    if(sum(id3)>0) { a[id3] <- b.model[PQ[id3],2] + u.model[Q[id3],2] + u.model[R[id3],2] + log(3*0.4) }
-    if(sum(id4)>0) { a[id4] <- u.model[P[id4],2] + u.model[Q[id4],2] + b.model[QR[id4],2] + log(3*0.4) }
-    if(sum(id5)>0) { a[id5] <- u.model[P[id5],2] + u.model[Q[id5],2] + u.model[R[id5],2] + log(4*0.4) }
-    
-    rownames(a) <- PQR; colnames(a) <- "MLE"
-    a
-}
 ngram_perplexity <- function(data,u.model,b.model,t.model,n) {
     D <- ngram_tokenize(data); D <- unlist(D); 
     if(n==1) { # Unigram
@@ -392,24 +367,30 @@ ngram_predict <- function(data) {
     D <- unlist(D); D[!(D %in% rownames(u.model))] <- "UNK" # mark the ones not in dictionary as UNK
     L <- length(D)
     
-    if(L>3) {
-        # Bigram model
-        bm.mle <- bigram_mle(D,u.model,b.model,1)
-        bm.word <- rownames(u.model)[which.max(bm.mle)]
-             
-        # Trigram model
-        tm.mle <- trigram_mle(D,u.model,b.model,t.model,1)
-        tm.word <- rownames(u.model)[which.max(tm.mle)]
-        
-        # Back off approach
-        tbu.mle <- backoff_mle(D,u.model,b.model,t.model,1)
-        tbu.word <- rownames(u.model)[which.max(tbu.mle)]
-        
-    } else {
-        tbu.word <- "UNK"
-    }
+    if(L==0) { W1 <- "UNK"; W2 <- "UNK"}
+    if(L==1) { W1 <- "UNK"; W2 <- D[L] }
+    if(L>1) { W1 <- D[L-1]; W2 <- D[L] }
+    P <- rep(W1,length(R)) 
+    Q <- rep(W2,length(R))
+    R <- rownames(u.model); R <- R[1:(length(R)-1)] # Map against dictionary
     
-    tbu.word
+    PQR <- paste(P,Q,R)
+    id1 <- (PQR %in% rownames(t.model))
+    PQ <- paste(P,Q)
+    QR <- paste(Q,R)
+    id2 <- (!id1) & (PQ %in% rownames(b.model))    &   (QR %in% rownames(b.model))
+    id3 <- (!id1) & (PQ %in% rownames(b.model))    & (!(QR %in% rownames(b.model)))
+    id4 <- (!id1) & (!(PQ %in% rownames(b.model))) &   (QR %in% rownames(b.model))
+    id5 <- (!id1) & (!(PQ %in% rownames(b.model))) & (!(QR %in% rownames(b.model)))
+    
+    a <- matrix(NA,length(PQR),1)
+    if(sum(id1)>0) { a[id1] <- t.model[PQR[id1],2] }
+    if(sum(id2)>0) { a[id2] <- b.model[PQ[id2],2] + b.model[QR[id2],2] + log(2*0.4) }
+    if(sum(id3)>0) { a[id3] <- b.model[PQ[id3],2] + u.model[Q[id3],2] + u.model[R[id3],2] + log(3*0.4) }
+    if(sum(id4)>0) { a[id4] <- u.model[P[id4],2] + u.model[Q[id4],2] + b.model[QR[id4],2] + log(3*0.4) }
+    if(sum(id5)>0) { a[id5] <- u.model[P[id5],2] + u.model[Q[id5],2] + u.model[R[id5],2] + log(4*0.4) }
+    
+    pred_word <- rownames(u.model)[which.max(a)]
 }
 ```
 
