@@ -72,11 +72,16 @@ fileurl <- "http://jmlr.csail.mit.edu/papers/volume5/lewis04a/a11-smart-stop-lis
 if(!file.exists("stop-words.txt")) { download.file(fileurl,destfile = "stop-words.txt", method="curl") }
 
 ngram_tokenize <- function(data) {
-    data <- lapply(data, function(x) { tolower(gsub("[[:punct:]]","", x)) }) # punctuation, lowercase
+    for(i in 1:length(data)) {
+        temp <- data[i]
+        temp <- gsub("[.-]"," ", temp) # replace . - with space
+        temp <- gsub("[[:punct:]]","",temp) # remove punctuation
+        temp <- gsub("[0-9]","",temp) # remove numbers
+        data[i] <- tolower(temp) # to lower case
+    }
     data <- lapply(data, function(x) unlist(strsplit(x,split=" ")) ) # into words
-    data <- lapply(data, function(x) { gsub("[0-9]","",x)}) # remove numbers
-    data <- lapply(data, function(x) x[!(x=="")]) # remove blanks
-
+    data <- lapply(data, function(x) grep("^[a-z]+$",x,value=TRUE) ) # select only english
+    
     # Remove profane and remove stop words
     profanity <- readLines("bad-words.txt"); 
     stopWords <- readLines("stop-words.txt"); stopWords <- gsub("[[:punct:]]","",stopWords)
@@ -193,34 +198,30 @@ Lets buid Unigram, Bigram and Trigram models on a larger data set. The following
 3. **Pruning** : Any ngrams with 2 counts or fewer are not considered into the model directly. They are indirectly included via smoothin option above.
 
 ```{r,echo=TRUE,eval=FALSE}
-M <- 1000 # number of lines of text per each iteration
-N <- 1000 # number of iterations
+M <- 100000
+u.count <- ngram_compute(train[1:M],n=1)   # Unigram model
+b.count <- ngram_compute(train[1:M],n=2)   # Bigram model
+t.count <- ngram_compute(train[1:M],n=3)   # Trigram model
+save(u.count,b.count,t.count,file="Model_All.RData")
 
-# Unigram model
-u <- list()
-for (i in 1:N) { u[[i]] <- ngram_compute(train[((i-1)*M+1) : (i*M) ],n=1,mat=0,thres=0);cat(" ",i) } # compute
-unique_u <- unique(unlist(sapply(u,function(x) names(x))))
-u.count <- matrix(0,length(unique_u),1); rownames(u.count) <- unique_u
-for(i in 1:length(u)) { u.count[names(u[[i]]),1] <- u.count[names(u[[i]]),1] + u[[i]] } # collate
-ix <- order(u.count,decreasing = TRUE); u.count <- as.matrix(u.count[ix,1]); colnames(u.count) <- "count" # sort
-
-dictionary <- rownames(u.count)[1:25000] # pick all unigrams into dictionary
-
-# Bigram model
-b <- list()
-for (i in 1:N) { b[[i]] <- ngram_compute(train[((i-1)*M+1) : (i*M) ],n=2,mat=0, dictionary,thres=2);cat(" ",i)  } # compute
-unique_b <- unique(unlist(sapply(b,function(x) names(x))))
-b.count <- matrix(0,length(unique_b),1); rownames(b.count) <- unique_b
-for(i in 1:length(b)) { b.count[names(b[[i]]),1] <- b.count[names(b[[i]]),1] + b[[i]] } # collate
-ix <- order(b.count,decreasing = TRUE); b.count <- as.matrix(b.count[ix,1]); colnames(b.count) <- "count" # sort
-
-# Trigram model
-t <- list()
-for (i in 1:N) { t[[i]] <- ngram_compute(train[((i-1)*M+1) : (i*M) ],n=3,mat=0, dictionary,thres=2);cat(" ",i) } # compute
-unique_t <- unique(unlist(sapply(t,function(x) names(x))))
-t.count <- matrix(0,length(unique_t),1); rownames(t.count) <- unique_t
-for(i in 1:length(t)) { t.count[names(t[[i]]),1] <- t.count[names(t[[i]]),1] + t[[i]] } # collate
-ix <- order(t.count,decreasing = TRUE); t.count <- as.matrix(t.count[ix,1]); colnames(t.count) <- "count" # sort
+# u.model <- data.frame(w1 = names(u.count), count = u.count, row.names = NULL)
+# 
+# PQ <- unlist(strsplit(names(b.count),split = " ")); L <- length(PQ)
+# b.model <- data.frame(w1 = PQ[seq(1,(L-1),by=2)], w2 = PQ[seq(2,L,by=2)], count = b.count, row.names = NULL)
+# 
+# PQR <- unlist(strsplit(names(t.count),split = " ")); L <- length(PQR)
+# t.model <- data.frame(w1 = PQR[seq(1,(L-2),by=3)], w2 = PQR[seq(2,(L-1),by=3)], w3 = PQR[seq(3,L,by=3)],
+#                       count = t.count, row.names = NULL)
+# 
+# save(u.model,b.model,t.model,file="Model.RData")
+```
+```{r,echo=FALSE}
+load("Model_All.RData")
+x <- data.frame(c("unigrams","bigrams","trigrams"),
+                prettyNum(c(sum(u.count),sum(b.count),sum(t.count)),big.mark = ","),
+                prettyNum(c(length(u.count),length(b.count),length(t.count)),big.mark = ",") )
+names(x) <- c("N-gram","Number of ngrams", "Unique no. of ngrams")
+kable(x,align="c")
 ```
 
 ### Unigram, Bigram and Trigram probabilities
@@ -229,23 +230,24 @@ Compute unigram, bigram and trigram probability tables in this step. They are us
 # Calculate unigram log likelihood
 N <- sum(u.count) # Total number of tokens
 V <- nrow(u.count) # Number of words in the dictionary
-u.model <- rbind(u.count,"UNK" = 0) + 1 # Laplacian smoothing
-u.model <- cbind(u.model,"MLE" = log( u.model[,"count"] / (N+V) ) )
+u.model <- rbind(as.matrix(u.count),"UNK" = 0) + 1 # Laplacian smoothing
+u.model <- cbind(u.model,log(u.model[,1]/(N+V)) ); colnames(u.model) <- c("count","MLE")
 
 # Calculate bigram log likelihood
 PQ <- rownames(b.count)
 P <- sapply(strsplit(PQ, split = " "), function(x) x[1])
-bm.1 <- b.count + 1 # Laplacian smoothing
-bm.1 <- cbind(bm.1, "MLE" = log(bm.1[,1]/u.model[P,1]) ) # "Word1" "Word2"
+bm.1 <- as.matrix(b.count) + 1 # Laplacian smoothing
+bm.1 <- cbind(bm.1,log(bm.1[,1]/u.model[P,1]) ) # "Word1" "Word2"
 bm.2 <- as.matrix(cbind(rep(1,V),log(1/u.model[1:V,1]))) # "Word1" "UNK"
 rownames(bm.2) <- sapply(rownames(u.count),function(x) paste(x,"UNK",collapse = " "),USE.NAMES = FALSE)
 bm.3 <- as.matrix(cbind(1,u.model["UNK",2])); rownames(bm.3) <- "UNK UNK" # "UNK" "UNK"
-b.model <- rbind(bm.1,bm.2,bm.3)
+b.model <- rbind(bm.1,bm.2,bm.3); colnames(b.model) <- c("count","MLE")
 
 # Calculate trigram log likelihood
 PQR <- rownames(t.count)
 PQ <- sapply(strsplit(PQR, split = " "), function(x) paste(x[1:2],collapse = " "))
-t.model <- cbind("count" = (t.count+1), "MLE" = log((t.count[,1]+1)/b.model[PQ,1]) )
+t.model <- cbind(as.matrix(t.count+1), log(as.matrix(t.count+1)/b.model[PQ,1]) )
+colnames(t.model) <- c("count","MLE")
 
 # Save models to disk
 save(u.model,b.model,t.model, file="Model.RData")
@@ -323,13 +325,10 @@ trigram_mle <- function(D,u.model,b.model,t.model,flag = 0) {
 }
 backoff_mle <- function(D,u.model,b.model,t.model,flag = 0) {
     L <- length(D)
-    if(flag == 0) {
-        P <- D[1:(L-2)]; Q <- D[2:(L-1)]; R <- D[3:L]
-    }else { # special case for predicted word
-        R <- rownames(u.model); R <- R[1:(length(R)-1)] # Map against dictionary
-        P <- rep(D[L-1],length(R)) 
-        Q <- rep(D[L],length(R))
-    }
+    R <- rownames(u.model); R <- R[1:(length(R)-1)] # Map against dictionary
+    P <- rep(D[L-1],length(R)) 
+    Q <- rep(D[L],length(R))
+    
     PQR <- paste(P,Q,R)
     id1 <- (PQR %in% rownames(t.model))
     PQ <- paste(P,Q)
@@ -394,33 +393,23 @@ ngram_predict <- function(data) {
     L <- length(D)
     
     if(L>3) {
-        # Unigram model
-        um.mle <- sum(u.model[D,2]) + u.model[1:(nrow(u.model)-1),2]
-        um.word <- rownames(u.model)[which.max(um.mle)]
-        
         # Bigram model
-        b.stat <- bigram_mle(D,u.model,b.model)
-        b.dict <- bigram_mle(D,u.model,b.model,1)
-        bm.mle <- sum(b.stat) + b.dict
+        bm.mle <- bigram_mle(D,u.model,b.model,1)
         bm.word <- rownames(u.model)[which.max(bm.mle)]
              
         # Trigram model
-        t.stat <- trigram_mle(D,u.model,b.model,t.model)
-        t.dict <- trigram_mle(D,u.model,b.model,t.model,1)
-        tm.mle <- sum(t.stat) + t.dict
+        tm.mle <- trigram_mle(D,u.model,b.model,t.model,1)
         tm.word <- rownames(u.model)[which.max(tm.mle)]
         
         # Back off approach
-        tbu.stat <- backoff_mle(D,u.model,b.model,t.model)
-        tbu.dict <- backoff_mle(D,u.model,b.model,t.model,1)
-        tbu.mle <- sum(tbu.stat) + tbu.dict
+        tbu.mle <- backoff_mle(D,u.model,b.model,t.model,1)
         tbu.word <- rownames(u.model)[which.max(tbu.mle)]
         
     } else {
-        tm.word <- "UNK"
+        tbu.word <- "UNK"
     }
     
-    tm.word
+    tbu.word
 }
 ```
 
@@ -551,12 +540,14 @@ trigram_mle <- function(D,u.model,b.model,t.model,flag = 0) {
     id1 <- (PQR %in% rownames(t.model))
     PQ <- paste(P,Q)
     id2 <- (!id1) & (PQ %in% rownames(b.model))
-    id3 <- (!id1) & (!(PQ %in% rownames(b.model)))
+    id3 <- (!id1) & (!(PQ %in% rownames(b.model))) & (P != "UNK")
+    id4 <- (!id1) & (!(PQ %in% rownames(b.model))) & (P == "UNK")
     
     a <- matrix(NA,length(PQR),1)
     if(sum(id1)>0) { a[id1] <- t.model[PQR[id1],2] }
     if(sum(id2)>0) { a[id2] <- log(1/b.model[PQ[id2],1]) }
-    if(sum(id3)>0) { a[id3] <- u.model["UNK",2] }
+    if(sum(id3)>0) { a[id3] <- log(1/u.model[P[id3],1]) }
+    if(sum(id4)>0) { a[id4] <- u.model["UNK",2] }
     
     rownames(a) <- PQR; colnames(a) <- "MLE"
     a
