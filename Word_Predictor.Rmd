@@ -5,7 +5,7 @@ output: html_document
 ---
 
 # Summary
-N-gram probabilities are used to predict the next word given a sequence of words in a sentence. In this paper, first an exploratory data analysis is carried out on the text data obtained from various online web sources - news, blogs and twitter. Second N-gram probabilities are calculated and associated models are built to predict the next word given a sequence of words. Finally the models are compared and the model with least perplexity is chosen. The model built out of this project would ultimately be to use in a shiny app that simulates a predictive keyboard. 
+In this project, N-gram probabilities are used to predict the next word given a sequence of words in a sentence. First an exploratory data analysis is carried out on the text data obtained from various online web sources - news, blogs and twitter. Second N-gram probabilities are calculated and associated models are built to predict the next word given a sequence of words. Finally the models are compared and the best model is selected. The model built out of this project is ultimately used in a shiny app that simulates a predictive keyboard. 
 
 # Exploratory data analysis
 In this section exploratory data analysis is carried out to undersand word, bigram and trigram frequencies.
@@ -32,7 +32,7 @@ Lets split 60% of data into training, 20% of data into validation and the remani
 
 ```{r,warning=FALSE,message=FALSE}
 # Process each input file. 
-Nlines <- 100000
+Nlines <- 600000
 d.b <- readLines("final/en_US/en_US.blogs.txt",Nlines)
 d.n <- readLines("final/en_US/en_US.news.txt",Nlines)
 d.t <- readLines("final/en_US/en_US.twitter.txt",Nlines)
@@ -119,30 +119,36 @@ ngram_compute <- function(data,n,mat = 0,dictionary = character()) {
 }
 ```
 
-```{r}
-M <- 1000
+```{r,eval=FALSE}
+M <- 10000
 # Compute unigrams
 unigrams <- ngram_compute(train[1:M],n=1,mat=1) # Refer appendix for function definition
 ```
+```{r,echo=FALSE}
+# save(um,ums,bm,tm, file = "Report.RData")
+load("Report.RData")
+```
 
 **Top 10 unigrams and their average counts are**
-```{r}
+```{r,eval=FALSE}
 um <- unigrams %*% matrix(1,M,1) #row sums
 names(um) <- rownames(unigrams); um <- sort(um, decreasing = TRUE)
 ```
 ```{r,warning=FALSE,message=FALSE, fig.align="center"}
 um[1:10]
 library(wordcloud)
-wordcloud(names(um),um,max.words=300,scale = c(3,0.5),rot.per = 0.2, colors = brewer.pal(6,"Dark2"),random.order = FALSE)
+wordcloud(names(um),um,max.words=200,scale = c(3,0.5),rot.per = 0.2, colors = brewer.pal(6,"Dark2"),random.order = FALSE)
 ```
 
 **Statistical Inference**
 
 Using the central limit theorem to infer the population statistics from sample statistics, the average counts from the samples estimates to the counts seen in population. Note the counts are not integers as they are averaged over all sample sets and hence they are estimates. 
-```{r,fig.width=5,fig.height=6,fig.align="center"}
+```{r,eval=FALSE}
 Ms <- 100; Mcol = floor(M/Ms)
 mask_mat <- matrix(0,Mcol*Ms,Mcol); for(i in 1:Mcol) mask_mat[(((i-1)*Ms+1):(i*Ms)),i] <- 1
 ums <- unigrams[names(um[1:10]),] %*% mask_mat; rownames(ums) <- names(um[1:10])
+```
+```{r,fig.width=5,fig.height=6,fig.align="center"}
 boxplot(t(ums[10:1,]),xlab = "frequency (Number of unigrams per 100 lines)", main = "Unigram frequencies",horizontal = T,las=1)
 ```
 
@@ -150,18 +156,18 @@ boxplot(t(ums[10:1,]),xlab = "frequency (Number of unigrams per 100 lines)", mai
 **Dictionary selection**
 ```{r}
 sum(um); length(um)
-round(c(sum(um[1:1100]), sum(um[1:5900]))/sum(um)*100,2)
+round(c(sum(um[1:1400]), sum(um[1:13500]))/sum(um)*100,2)
 ```
 
-In the test sample set considered with sample size of **100** lines and **100** such samples, there are **10,000** lines of text containig **17,684** words and **7,572** unique unigrams. Data shows that in a frequency sorted word dictionary, only **1100** unique words are neeed to cover about **50%** of all the word instance and **5,900** unique words are needed to cover about **90%** of all word instances. Lets consider **all** the unigrams to be part of the dictionary.
+In the test sample set considered with sample size of **100** lines and **100** such samples, there are **10,000** lines of text containig **162,977** words and **28,582** unique unigrams. Data shows that in a frequency sorted word dictionary, only **1,400** unique words are neeed to cover about **50%** of all the word instance and **13,500** unique words are needed to cover about **90%** of all word instances. Lets consider the top **15,000** unigrams to be part of the dictionary.
 
 ```{r}
-dict <- names(um)
+dict <- names(um[1:13500])
 ```
 
 Lets look at the bigrams as well as trigrams and their frequency of occurence in the training sets. Here words that are not present in the dictionary are filtered out. 
 
-```{r}
+```{r,eval=FALSE}
 # Compute bigrams and trigrams
 bigrams <- ngram_compute(train[1:M],n=2,mat=1,dict)
 trigrams <- ngram_compute(train[1:M],n=3,mat=1,dict)
@@ -175,9 +181,9 @@ tm <- trigrams %*% matrix(1,ncol(trigrams),1); names(tm) <- rownames(trigrams); 
 bm[1:5]
 tm[1:5]
 par(mfrow=c(1,2),mar=c(2,4,2,4))
-wordcloud(names(bm),bm,max.words=150,scale=c(3,0.5),rot.per = 0.2, colors = brewer.pal(6,"Dark2"),random.order = FALSE)
+wordcloud(names(bm),bm,max.words=80,scale=c(2,0.8),rot.per = 0.2, colors = brewer.pal(6,"Dark2"),random.order = FALSE)
 title(main="Bigrams")
-wordcloud(names(tm),tm,max.words=100,scale=c(3,0.1),rot.per = 0.3, colors = brewer.pal(6,"Dark2"),random.order = FALSE)
+wordcloud(names(tm),tm,max.words=100,scale=c(2,0.5),rot.per = 0.3, colors = brewer.pal(6,"Dark2"),random.order = FALSE)
 title(main="Trigrams")
 ```
 
@@ -189,29 +195,20 @@ Lets buid Unigram, Bigram and Trigram models on a larger data set. The following
 
 1. **Smoothing** : Laplace smoothing of adding 1 to all the counts is used here to calculate probabilities for those missing unigrams. Out of vocaboulary words are marked as "UNK". 
 2. **Stop words** : Stop words are removed from unigram, bigram and trigram models.
-3. **Pruning** : Any ngrams with 2 counts or fewer are not considered into the model directly. They are indirectly included via smoothin option above.
+3. **Pruning** : Any ngrams with lesser the two counts are not considered into the model directly. They are indirectly included via smoothing option above.
 
 ```{r,echo=TRUE,eval=FALSE}
 M <- 100000
+prune <- 2
 u.count <- ngram_compute(train[1:M],n=1)   # Unigram model
-dict <- names(u.count[u.count>2])    # Dictionary
+dict <- names(u.count[u.count>prune])    # Dictionary
 b.count <- ngram_compute(train[1:M],n=2,dictionary = dict)   # Bigram model
 t.count <- ngram_compute(train[1:M],n=3,dictionary = dict)   # Trigram model
-
-save(u.count,b.count,t.count,file="Model_All.RData")
-```
-```{r,echo=FALSE}
-load("Model_All.RData")
-x <- data.frame(c("unigrams","bigrams","trigrams"),
-                prettyNum(c(sum(u.count),sum(b.count),sum(t.count)),big.mark = ","),
-                prettyNum(c(length(dict),length(b.count),length(t.count)),big.mark = ",") )
-names(x) <- c("N-gram","Number of ngrams", "Unique no. of ngrams")
-kable(x,align="c")
 ```
 
 ### Unigram, Bigram and Trigram probabilities
 Compute unigram, bigram and trigram probability tables in this step. They are used to evaluate models and also predict the next word. 
-```{r}
+```{r,eval=FALSE}
 # Calculate unigram log likelihood
 N <- sum(u.count) # Total number of tokens
 V <- length(dict) # Number of words in the dictionary
@@ -219,9 +216,10 @@ u.model <- rbind(as.matrix(u.count[dict]),"UNK" = 0) + 1 # Laplacian smoothing
 u.model <- cbind(u.model,log(u.model[,1]/(N+V)) ); colnames(u.model) <- c("count","MLE")
 
 # Calculate bigram log likelihood
-PQ <- names(b.count)
+bc.prune <- b.count[b.count > prune]
+PQ <- names(bc.prune)
 P <- sapply(strsplit(PQ, split = " "), function(x) x[1])
-bm.1 <- as.matrix(b.count) + 1 # Laplacian smoothing
+bm.1 <- as.matrix(bc.prune) + 1 # Laplacian smoothing
 bm.1 <- cbind(bm.1,log(bm.1[,1]/u.model[P,1]) ) # "Word1" "Word2"
 bm.2 <- as.matrix(cbind(rep(1,V),log(1/u.model[1:V,1]))) # "Word1" "UNK"
 rownames(bm.2) <- paste(dict,"UNK")
@@ -229,16 +227,34 @@ bm.3 <- as.matrix(cbind(1,u.model["UNK",2])); rownames(bm.3) <- "UNK UNK" # "UNK
 b.model <- rbind(bm.1,bm.2,bm.3); colnames(b.model) <- c("count","MLE")
 
 # Calculate trigram log likelihood
-PQR <- rownames(t.count)
+tc.prune <- t.count[t.count > prune]
+PQR <- rownames(tc.prune)
 PQ <- sapply(strsplit(PQR, split = " "), function(x) paste(x[1:2],collapse = " "))
-t.model <- cbind(as.matrix(t.count+1), log(as.matrix(t.count+1)/b.model[PQ,1]) )
+t.model <- cbind(as.matrix(tc.prune+1), log(as.matrix(tc.prune+1)/b.model[PQ,1]) )
 colnames(t.model) <- c("count","MLE")
-
+```
+```{r,echo=FALSE}
 # Save models to disk
-save(u.count,b.count,t.count,u.model,b.model,t.model, file="Model_All.RData")
+# save(u.count,dict,b.count,t.count,u.model,b.model,t.model, file="Model_All_100K.RData")
+load("Model_All_100K.RData")
+prune <- 2
+x <- data.frame(c("unigrams","bigrams","trigrams"),
+                prettyNum(c(sum(u.count),sum(b.count),sum(t.count)),big.mark = ","),
+                prettyNum(c(length(u.count),length(b.count),length(t.count)),big.mark = ","),
+                prettyNum(c(sum(u.count>prune), sum(b.count>prune), sum(t.count>prune)),big.mark = ",") )
+names(x) <- c("N-gram","Number of ngrams", "Unique no. of ngrams", "Unique no. after pruning")
+kable(x,align="c")
 ```
 
-The number of tokens in the model **N = 7,112,600** and the number of words in the dictionary **V = 26,315**.
+The number of tokens in the model **N = 1,639,936** and the number of words in the dictionary **V = 37,124**.
+
+```{r}
+# Save model to disk
+u.mle <- sort(u.model[,2], decreasing = TRUE)
+b.mle <- sort(b.model[,2], decreasing = TRUE)
+t.mle <- sort(t.model[,2], decreasing = TRUE)
+save(u.mle,b.mle,t.mle,file="Model.RData")
+```
 
 **Top 10 unigrams, bigrams and trigrams from the corpus are listed below**
 ```{r,echo=FALSE,eval=TRUE}
@@ -340,56 +356,68 @@ names(x) <- c("Model Type", "Number of unique n-grams", "Perplexity (validation 
 kable(x,align="c")
 ```
 
-From the perplexity numbers, the model of choice would be **bigram model - with smoothing** as it has the least perplexity on validation data set.
+From the perplexity numbers, the model of choice would be **trigram model** as it has the least perplexity on validation data set. However since the number of trigram samples obtained from the training set is not significant, back off approach is used to predit the next word. As such **all three models** are considered with **stupid backoff** to roll back to the next best model if an ngram doesn't exist in the language model.
 
 ## Example prediction
 Lets run through example test cases
 ```{r,echo=FALSE}
 ngram_predict <- function(data) {
-    #load("Model.RData")
     
     D <- ngram_tokenize(data) # Tokenize
-    D <- unlist(D); D[!(D %in% rownames(u.model))] <- "UNK" # mark the ones not in dictionary as UNK
+    D <- unlist(D); D[!(D %in% names(u.mle))] <- "UNK" # mark the ones not in dictionary as UNK
     L <- length(D)
     
     if(L==0) { P <- "UNK"; Q <- "UNK"}
     if(L==1) { P <- "UNK"; Q <- D[L] }
     if(L>1) { P <- D[L-1]; Q <- D[L] }
-    R <- rownames(u.model); R <- R[-length(R)] # Map against dictionary
+    R <- names(u.mle); R <- R[-length(R)] # Map against dictionary
     
     PQR <- paste(P,Q,R)
-    id1 <- (PQR %in% rownames(t.model))
+    id1 <- (PQR %in% names(t.mle))
     PQ <- paste(P,Q)
     QR <- paste(Q,R)
-    id2 <- (!id1) & (PQ %in% rownames(b.model))    &   (QR %in% rownames(b.model))
-    id3 <- (!id1) & (PQ %in% rownames(b.model))    & (!(QR %in% rownames(b.model)))
-    id4 <- (!id1) & (!(PQ %in% rownames(b.model))) &   (QR %in% rownames(b.model))
-    id5 <- (!id1) & (!(PQ %in% rownames(b.model))) & (!(QR %in% rownames(b.model)))
+    id2 <- (!id1) & (PQ %in% names(b.mle))    &   (QR %in% names(b.mle))
+    id3 <- (!id1) & (PQ %in% names(b.mle))    & (!(QR %in% names(b.mle)))
+    id4 <- (!id1) & (!(PQ %in% names(b.mle))) &   (QR %in% names(b.mle))
+    id5 <- (!id1) & (!(PQ %in% names(b.mle))) & (!(QR %in% names(b.mle)))
     
     a <- matrix(NA,length(PQR),1)
-    if(sum(id1)>0) { a[id1] <- t.model[PQR[id1],2] }
-    if(sum(id2)>0) { a[id2] <- b.model[PQ,2] + b.model[QR[id2],2] + log(2*0.4) }
-    if(sum(id3)>0) { a[id3] <- b.model[PQ,2] + u.model[Q,2] + u.model[R[id3],2] + log(3*0.4) }
-    if(sum(id4)>0) { a[id4] <- u.model[P,2] + u.model[Q,2] + b.model[QR[id4],2] + log(3*0.4) }
-    if(sum(id5)>0) { a[id5] <- u.model[P,2] + u.model[Q,2] + u.model[R[id5],2] + log(4*0.4) }
+    if(sum(id1)>0) { a[id1] <- t.mle[PQR[id1]] }
+    if(sum(id2)>0) { a[id2] <- b.mle[PQ] + b.mle[QR[id2]]            + log(2*0.4) }
+    if(sum(id3)>0) { a[id3] <- b.mle[PQ] + u.mle[Q] + u.mle[R[id3]]  + log(3*0.4) }
+    if(sum(id4)>0) { a[id4] <- u.mle[P]  + u.mle[Q] + b.mle[QR[id4]] + log(3*0.4) }
+    if(sum(id5)>0) { a[id5] <- u.mle[P]  + u.mle[Q] + u.mle[R[id5]]  + log(4*0.4) }
     
-    pred_word <- rownames(u.model)[which.max(a)]
+    pred_word <- R[which.max(a)]
 }
 ```
 
-```{r,eval=TRUE}
+```{r,echo=FALSE, eval=FALSE}
 df <- data.frame()
 for(i in 1:100) {
     data <- unlist(strsplit(test[i],split = " "))
     newdata <- paste(data[1:(length(data)-1)],collapse = " ")
-    truth <- data[(length(data)-10):length(data)]
+    truth <- data[length(data)]
     pred <- ngram_predict(newdata)
     df <- rbind(df, data.frame(truth = truth, pred = pred))
 }
 df
 ```
 
-The idea here is to use limited vocabulary unigram, bigram and trigram dictionaries and see what best we can do.
+```{r}
+print(ngram_predict("To all the mothers out there, wish you a Happy Mother's"))
+print(ngram_predict("Wish you a very Happy"))
+print(ngram_predict("Processed foods contain high fructose"))
+print(ngram_predict("Processed foods contain high fructose corn"))
+print(ngram_predict("This is United"))
+print(ngram_predict("This is United states of"))
+print(ngram_predict("05th of May is Cinco"))
+print(ngram_predict("05th of May is Cinco de"))
+print(ngram_predict("What did you get as a Valentine's"))
+print(ngram_predict("What did you get as a Valentine's day"))
+```
+
+Since the stop words are removed from the dictionary and ngrams, this model wouldn't predict any stop words. 
 
 # Appendix - Code
 
@@ -446,7 +474,7 @@ ngram_compute <- function(data,n,mat = 0,dictionary = character()) {
 ### bigram_mle()
 Function to compute bigram MLE of a test data set. It can also compute MLE against a dictionary which can be used to predict the next word.
 ```{r,eval=FALSE}
-bigram_mle <- function(D,u.model,b.model,flag=0) {
+bigram_mle <- function(D,u.model,b.mle,flag=0) {
     D[!(D %in% rownames(u.model))] <- "UNK"; 
     L <- length(D)
     if(flag == 0) { 
@@ -525,33 +553,32 @@ ngram_perplexity <- function(data,u.model,b.model,t.model,n) {
 Function to predict the next word given a sequence of words
 ```{r,eval=FALSE}
 ngram_predict <- function(data) {
-    #load("Model.RData")
     
     D <- ngram_tokenize(data) # Tokenize
-    D <- unlist(D); D[!(D %in% rownames(u.model))] <- "UNK" # mark the ones not in dictionary as UNK
+    D <- unlist(D); D[!(D %in% names(u.mle))] <- "UNK" # mark the ones not in dictionary as UNK
     L <- length(D)
     
     if(L==0) { P <- "UNK"; Q <- "UNK"}
     if(L==1) { P <- "UNK"; Q <- D[L] }
     if(L>1) { P <- D[L-1]; Q <- D[L] }
-    R <- rownames(u.model); R <- R[-length(R)] # Map against dictionary
+    R <- names(u.mle); R <- R[-length(R)] # Map against dictionary
     
     PQR <- paste(P,Q,R)
-    id1 <- (PQR %in% rownames(t.model))
+    id1 <- (PQR %in% names(t.mle))
     PQ <- paste(P,Q)
     QR <- paste(Q,R)
-    id2 <- (!id1) & (PQ %in% rownames(b.model))    &   (QR %in% rownames(b.model))
-    id3 <- (!id1) & (PQ %in% rownames(b.model))    & (!(QR %in% rownames(b.model)))
-    id4 <- (!id1) & (!(PQ %in% rownames(b.model))) &   (QR %in% rownames(b.model))
-    id5 <- (!id1) & (!(PQ %in% rownames(b.model))) & (!(QR %in% rownames(b.model)))
+    id2 <- (!id1) & (PQ %in% names(b.mle))    &   (QR %in% names(b.mle))
+    id3 <- (!id1) & (PQ %in% names(b.mle))    & (!(QR %in% names(b.mle)))
+    id4 <- (!id1) & (!(PQ %in% names(b.mle))) &   (QR %in% names(b.mle))
+    id5 <- (!id1) & (!(PQ %in% names(b.mle))) & (!(QR %in% names(b.mle)))
     
     a <- matrix(NA,length(PQR),1)
-    if(sum(id1)>0) { a[id1] <- t.model[PQR[id1],2] }
-    if(sum(id2)>0) { a[id2] <- b.model[PQ,2] + b.model[QR[id2],2] + log(2*0.4) }
-    if(sum(id3)>0) { a[id3] <- b.model[PQ,2] + u.model[Q,2] + u.model[R[id3],2] + log(3*0.4) }
-    if(sum(id4)>0) { a[id4] <- u.model[P,2] + u.model[Q,2] + b.model[QR[id4],2] + log(3*0.4) }
-    if(sum(id5)>0) { a[id5] <- u.model[P,2] + u.model[Q,2] + u.model[R[id5],2] + log(4*0.4) }
+    if(sum(id1)>0) { a[id1] <- t.mle[PQR[id1]] }
+    if(sum(id2)>0) { a[id2] <- b.mle[PQ] + b.mle[QR[id2]]            + log(2*0.4) }
+    if(sum(id3)>0) { a[id3] <- b.mle[PQ] + u.mle[Q] + u.mle[R[id3]]  + log(3*0.4) }
+    if(sum(id4)>0) { a[id4] <- u.mle[P]  + u.mle[Q] + b.mle[QR[id4]] + log(3*0.4) }
+    if(sum(id5)>0) { a[id5] <- u.mle[P]  + u.mle[Q] + u.mle[R[id5]]  + log(4*0.4) }
     
-    pred_word <- rownames(u.model)[which.max(a)]
+    pred_word <- R[which.max(a)]
 }
 ```
