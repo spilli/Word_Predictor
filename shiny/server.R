@@ -1,8 +1,7 @@
 # server.r
 
 library(shiny) 
-#load("Model_100k.RData")
-load("Model_1M.RData")
+load("Model.RData")
 
 ngram_tokenize <- function(data) {
     for(i in 1:length(data)) {

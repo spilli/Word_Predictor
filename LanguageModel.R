@@ -103,14 +103,9 @@ rm(d.b,d.n,d.t)
 
 M <- 1000000
 u.count <- ngram_compute(train[1:M],1)   # Unigram model
-save(u.count,file="uc.RData")
-
-date()
 b.count <- ngram_compute(train[1:M],2)   # Bigram model
-save(b.count,file="bc.RData")
-
-date()
 t.count <- ngram_compute(train[1:M],3)   # Trigram model
+M <- 100000
 q.count <- ngram_compute(train[1:M],4)   # Quadgram model
 p.count <- ngram_compute(train[1:M],5)   # Pentagram model
 
@@ -192,6 +187,7 @@ rownames(m5) <- NULL
 rm(PQRST,df5)
 
 save(dict,m2,m3,m4,m5,file="Model.RData")
+save(u.count,b.count,t.count,q.count,p.count,m2,m3,m4,m5,file="Model_All.RData")
 
 
 # ----------- Test the model -----------
