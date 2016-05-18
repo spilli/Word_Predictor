@@ -101,7 +101,7 @@ rm(d.b,d.n,d.t)
 
 #---------------------- Compute ngrams -------------------------
 
-M <- 10000
+M <- 1000000
 u.count <- ngram_compute(train[1:M],1)   # Unigram model
 save(u.count,file="uc.RData")
 
@@ -117,64 +117,50 @@ p.count <- ngram_compute(train[1:M],5)   # Pentagram model
 x <- data.frame(c("1-grams","2-grams","3-grams","4-grams","5-grams"),
                 prettyNum(c(sum(u.count),sum(b.count),sum(t.count),sum(q.count),sum(p.count)),big.mark = ","),
                 prettyNum(c(length(u.count),length(b.count),length(t.count),length(q.count),length(p.count)),big.mark = ",")
-                )
+)
 names(x) <- c("N-gram","Number of ngrams", "Unique no. of ngrams")
-kable(x,align="c")
+library(knitr);kable(x,align="c")
 
 #--------------- Build word prediction model ---------------------
 dict <- names(u.count)
 dictionary <- matrix(1:length(dict)); rownames(dictionary) <- dict
 
-PQ <- unlist(strsplit(names(b.count),split = " "))
-P <- PQ[seq(1,length(PQ),by=2)]
-Q <- PQ[seq(2,length(PQ),by=2)]
-df2 <- data.frame(w1 = P,w2 = Q, c=b.count, row.names = NULL)
-
-PQR <- unlist(strsplit(names(t.count),split = " "))
-P <- PQR[seq(1,length(PQR),by=3)]
-Q <- PQR[seq(2,length(PQR),by=3)]
-R <- PQR[seq(3,length(PQR),by=3)]
-df3 <- data.frame(w1 = P, w2 = Q, w3 = R, c=t.count, row.names = NULL)
-
-PQRS <- unlist(strsplit(names(q.count),split = " "))
-P <- PQRS[seq(1,length(PQRS),by=4)]
-Q <- PQRS[seq(2,length(PQRS),by=4)]
-R <- PQRS[seq(3,length(PQRS),by=4)]
-S <- PQRS[seq(4,length(PQRS),by=4)]
-df4 <- data.frame(w1 = P, w2 = Q, w3 = R, w4 = S, c=q.count, row.names = NULL)
-
-PQRST <- unlist(strsplit(names(p.count),split = " "))
-P <- PQRST[seq(1,length(PQRST),by=5)]
-Q <- PQRST[seq(2,length(PQRST),by=5)]
-R <- PQRST[seq(3,length(PQRST),by=5)]
-S <- PQRST[seq(4,length(PQRST),by=5)]
-T <- PQRST[seq(5,length(PQRST),by=5)]
-df5 <- data.frame(w1 = P, w2 = Q, w3 = R, w4 = S, w5 = T, c=p.count, row.names = NULL)
-
 library(dplyr)
+
 # 2-grams
+PQ <- unlist(strsplit(names(b.count),split = " "))
+df2 <- data.frame(w1 = PQ[seq(1,length(PQ),by=2)],
+                  w2 = PQ[seq(2,length(PQ),by=2)], c=b.count, row.names = NULL)
 df2 <- df2 %>% group_by(w1) %>% arrange(desc(c)) %>% slice(1) %>% as.data.frame()
 df2$w1 <- as.character(df2$w1)
 df2$w2 <- as.character(df2$w2)
 df2$c <- as.integer(df2$c)
 df2 <- arrange(df2,desc(c))
-
 m2 <- cbind(dictionary[df2$w1,1],dictionary[df2$w2,1])
 rownames(m2) <- NULL
-# dict[bm[bm[,1]==which(dict=="of"),2]]
+rm(PQ,df2)
 
 # 3-grams
+PQR <- unlist(strsplit(names(t.count),split = " "))
+df3 <- data.frame(w1 = PQR[seq(1,length(PQR),by=3)],
+                  w2 = PQR[seq(2,length(PQR),by=3)],
+                  w3 = PQR[seq(3,length(PQR),by=3)], c=t.count, row.names = NULL)
 df3 <- df3 %>% group_by(w1) %>% arrange(desc(c)) %>% slice(1) %>% as.data.frame()
 df3$w1 <- as.character(df3$w1)
 df3$w2 <- as.character(df3$w2)
 df3$w3 <- as.character(df3$w3)
 df3$c <- as.integer(df3$c)
 df3 <- arrange(df3,desc(c))
-
 m3 <- cbind(dictionary[df3$w1,1],dictionary[df3$w2,1],dictionary[df3$w3,1])
 rownames(m3) <- NULL
+rm(PQR,df3)
 
 # 4-grams
+PQRS <- unlist(strsplit(names(q.count),split = " "))
+df4 <- data.frame(w1 = PQRS[seq(1,length(PQRS),by=4)],
+                  w2 = PQRS[seq(2,length(PQRS),by=4)],
+                  w3 = PQRS[seq(3,length(PQRS),by=4)],
+                  w4 = PQRS[seq(4,length(PQRS),by=4)], c=q.count, row.names = NULL)
 df4 <- df4 %>% group_by(w1) %>% arrange(desc(c)) %>% slice(1) %>% as.data.frame()
 df4$w1 <- as.character(df4$w1)
 df4$w2 <- as.character(df4$w2)
@@ -182,11 +168,17 @@ df4$w3 <- as.character(df4$w3)
 df4$w4 <- as.character(df4$w4)
 df4$c <- as.integer(df4$c)
 df4 <- arrange(df4,desc(c))
-
 m4 <- cbind(dictionary[df4$w1,1],dictionary[df4$w2,1],dictionary[df4$w3,1],dictionary[df4$w4,1])
 rownames(m4) <- NULL
+rm(PQRS,df4)
 
 # 5-grams
+PQRST <- unlist(strsplit(names(p.count),split = " "))
+df5 <- data.frame(w1 = PQRST[seq(1,length(PQRST),by=5)], 
+                  w2 = PQRST[seq(2,length(PQRST),by=5)], 
+                  w3 = PQRST[seq(3,length(PQRST),by=5)],
+                  w4 = PQRST[seq(4,length(PQRST),by=5)],
+                  w5 = PQRST[seq(5,length(PQRST),by=5)], c=p.count, row.names = NULL)
 df5 <- df5 %>% group_by(w1) %>% arrange(desc(c)) %>% slice(1) %>% as.data.frame()
 df5$w1 <- as.character(df5$w1)
 df5$w2 <- as.character(df5$w2)
@@ -195,9 +187,9 @@ df5$w4 <- as.character(df5$w4)
 df5$w5 <- as.character(df5$w5)
 df5$c <- as.integer(df5$c)
 df5 <- arrange(df5,desc(c))
-
 m5 <- cbind(dictionary[df5$w1,1],dictionary[df5$w2,1],dictionary[df5$w3,1],dictionary[df5$w4,1],dictionary[df5$w5,1])
 rownames(m5) <- NULL
+rm(PQRST,df5)
 
 save(dict,m2,m3,m4,m5,file="Model.RData")
 
@@ -205,7 +197,6 @@ save(dict,m2,m3,m4,m5,file="Model.RData")
 # ----------- Test the model -----------
 
 print(ngram_predict("thank you"))
-print(ngram_predict("check it"))
 print(ngram_predict("i would like"))
 print(ngram_predict("couple of weeks"))
 print(ngram_predict("being number one in"))
@@ -213,3 +204,7 @@ print(ngram_predict("despite the fact"))
 print(ngram_predict("being number one in the"))
 
 print(ngram_predict("cant wait to have"))
+print(ngram_predict("united states of"))
+print(ngram_predict("cinco de"))
+print(ngram_predict("president barack"))
+print(ngram_predict("Wish you a Happy Mother's"))

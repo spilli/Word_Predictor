@@ -1,12 +1,13 @@
 # server.r
 
 library(shiny) 
-load("Model_100K.RData")
+#load("Model_100k.RData")
+load("Model_1M.RData")
 
 ngram_tokenize <- function(data) {
     for(i in 1:length(data)) {
         temp <- data[i]
-        temp <- gsub("[.-]"," ", temp) # replace . - with space
+        temp <- gsub("[,.-]"," ", temp) # replace . - with space
         temp <- gsub("[[:punct:]]","",temp) # remove punctuation
         temp <- gsub("[0-9]","",temp) # remove numbers
         data[i] <- tolower(temp) # to lower case
@@ -16,38 +17,51 @@ ngram_tokenize <- function(data) {
     
     # Remove profane and remove stop words
     profanity <- readLines("bad-words.txt"); 
-    stopWords <- readLines("stop-words.txt"); stopWords <- gsub("[[:punct:]]","",stopWords)
-    remWords <- c(profanity[-1],stopWords)
+    remWords <- profanity[-1]
     data <- lapply(data, function(x) { x[!(x %in% remWords)] })
 }
+
+pred2 <- function(P) {
+    iP <- which(dict==P)
+    pred <- dict[m2[ (m2[,1]==iP) , 2]]
+}
+pred3 <- function(P,Q) {
+    iP <- which(dict==P); iQ <- which(dict==Q)  
+    pred <- dict[m3[ (m3[,1]==iP)&(m3[,2]==iQ) , 3]]
+}
+pred4 <- function(P,Q,R) {
+    iP <- which(dict==P); iQ <- which(dict==Q); iR <- which(dict==R) 
+    pred <- dict[m4[ (m4[,1]==iP)&(m4[,2]==iQ)&(m4[,3]==iR) , 4]]
+}
+pred5 <- function(P,Q,R,S) {
+    iP <- which(dict==P); iQ <- which(dict==Q); iR <- which(dict==R); iS <- which(dict==S)
+    pred <- dict[m5[ (m5[,1]==iP)&(m5[,2]==iQ)&(m5[,3]==iR)&(m5[,4]==iS) , 5]]
+}
 ngram_predict <- function(data) {
-    
     D <- ngram_tokenize(data) # Tokenize
-    D <- unlist(D); D[!(D %in% names(u.mle))] <- "UNK" # mark the ones not in dictionary as UNK
+    D <- unlist(D)
     L <- length(D)
     
-    if(L==0) { P <- "UNK"; Q <- "UNK"}
-    if(L==1) { P <- "UNK"; Q <- D[L] }
-    if(L>1) { P <- D[L-1]; Q <- D[L] }
-    R <- names(u.mle); R <- R[-length(R)] # Map against dictionary
-    
-    PQR <- paste(P,Q,R)
-    id1 <- (PQR %in% names(t.mle))
-    PQ <- paste(P,Q)
-    QR <- paste(Q,R)
-    id2 <- (!id1) & (PQ %in% names(b.mle))    &   (QR %in% names(b.mle))
-    id3 <- (!id1) & (PQ %in% names(b.mle))    & (!(QR %in% names(b.mle)))
-    id4 <- (!id1) & (!(PQ %in% names(b.mle))) &   (QR %in% names(b.mle))
-    id5 <- (!id1) & (!(PQ %in% names(b.mle))) & (!(QR %in% names(b.mle)))
-    
-    a <- matrix(NA,length(PQR),1)
-    if(sum(id1)>0) { a[id1] <- t.mle[PQR[id1]] }
-    if(sum(id2)>0) { a[id2] <- b.mle[PQ] + b.mle[QR[id2]]            + log(2*0.4) }
-    if(sum(id3)>0) { a[id3] <- b.mle[PQ] + u.mle[Q] + u.mle[R[id3]]  + log(3*0.4) }
-    if(sum(id4)>0) { a[id4] <- u.mle[P]  + u.mle[Q] + b.mle[QR[id4]] + log(3*0.4) }
-    if(sum(id5)>0) { a[id5] <- u.mle[P]  + u.mle[Q] + u.mle[R[id5]]  + log(4*0.4) }
-    
-    pred_word <- R[which.max(a)]
+    if (L==0) { pred_val <- dict[1]}
+    if (L==1) { 
+        P <- D[L]; pred_val <- pred2(P)
+    }
+    if (L==2) { 
+        P <- D[L-1]; Q <- D[L]; pred_val <- pred3(P,Q)
+        pred_val <- if(length(pred_val)==1) { pred_val } else { pred2(Q) }
+    }
+    if (L==3) { 
+        P <- D[L-2]; Q <- D[L-1]; R <- D[L]; pred_val <- pred4(P,Q,R)
+        pred_val <- if(length(pred_val)==1) { pred_val } else { pred3(Q,R) }
+        pred_val <- if(length(pred_val)==1) { pred_val } else { pred2(R) }
+    }
+    if (L>=4) { 
+        P <- D[L-3]; Q <- D[L-2]; R <- D[L-1]; S <- D[L]; pred_val <- pred5(P,Q,R,S)
+        pred_val <- if(length(pred_val)==1) { pred_val } else { pred4(Q,R,S) }
+        pred_val <- if(length(pred_val)==1) { pred_val } else { pred3(R,S) }
+        pred_val <- if(length(pred_val)==1) { pred_val } else { pred2(S) }
+    }
+    pred_val <- if(length(pred_val)==1) { pred_val } else { "UNK" }
 }
 
 
