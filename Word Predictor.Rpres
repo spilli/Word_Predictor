@@ -1,0 +1,59 @@
+Word Predictor - App
+========================================================
+![alt text](pres_img.png)
+
+Executive Summary
+========================================================
+**A web based shiny application that predicts the next word in real time given a sequence of words.**
+```{r,echo=FALSE}
+df = data.frame(c("This is United States of", "Wish you a Happy Mother\'s","President Barack"),
+                c("America", "Day", "Obama"))
+names(df) <- c("Word Sequence", "Predicted Word")
+library(knitr);kable(df)
+```
+- Language model is small enough (6.3 MB) to run on mobile device without compromising performance
+- Links : [Shiny App](https://spilli.shinyapps.io/Word_Predictor/), [Milestone Report](http://rpubs.com/spilli/177703), [Code](https://github.com/spilli/Word_Predictor)
+- This data product is built as part of Capstone project for Data Science Specialization at Coursera in collaboration with SwiftKey. Data is obtained from [HC Corpora](http://www.corpora.heliohost.org) 
+
+Ngram language model
+========================================================
+N-gram based language models are built on sampled training set are used to predict the next word from the previous (N-1) words
+- **Tokenization** includes removing numbers, punctuation and changing to lower case words. Profanity filter from [CMU](http://www.cs.cmu.edu/~biglou/resources/bad-words.txt) is applied. Stop words are included.
+- **table()** function is primarily used to compute frequency of unique n-grams. 
+```{r,echo=FALSE}
+df <- data.frame(c("1-gram","2-gram","3-gram","4-gram","5-gram"),
+                 c("1M","1M","1M","100K","100K"),
+                 prettyNum(c(30154610,29155514,28166864,3803701,3712984),big.mark = ","),
+                 prettyNum(c(301624,5735348,16339461,3516889,3650637),big.mark = ","),
+                 prettyNum(c(301624,287557,276588,27279,26863),big.mark = ","),
+                 prettyNum(c(17.45,2.19,3.16,0.42,0.51),big.mark = ","))
+names(df) <- c("N-gram","Lines","Num","Num unique","Model entries","Size(MB)")
+kable(df,align="r")
+```
+
+
+Algorithm and Tradeoffs
+========================================================
+- **Step 1** : Use the words in n-gram model as dictionary. Tokenize new sentence. Mark words not in the dictionary as "UNK"
+- **Step 2** : If last (N-1) words exist in N-gram model then use predicted word from N-gram model. Else use backoff approach to check in (N-1)gram table and so on. If nothing exists in 2-gram table then predicted word is "the" (most frequent unigram)
+- Model size, accuracy and speed are tuned to obtain optimal fit with 1M lines of training set for 1,2,3-grams and 100K lines for 4,5-grams. 
+- Smoothing was tried along with calculating MLE and searching through the dictionary on the fly. But this turned out to be very slow with large dictionary sizes
+
+Example 
+========================================================
+```{r,echo=FALSE}
+load("pres.RData")
+df <- data.frame(x$w1,x$w2,x$w3,x$w4,x$w5,x$c,row.names = NULL)
+names(df) <- c("Word 1", "Word 2","Word 3", "Word 4","Pred word","Frequency")
+kable(df)
+```
+Selected pattern using 5-gram model that has highest MLE (same as highest frequency for word predictors)
+```{r,echo=FALSE}
+df <- data.frame(x$w1[1],x$w2[1],x$w3[1],x$w4[1],x$w5[1],x$c[1],row.names = NULL)
+names(df) <- c("Word 1", "Word 2","Word 3", "Word 4","Pred word","Frequency")
+kable(df)
+```
+Encoded 5-Gram model using the dictionary as codebook
+```{r,echo=FALSE}
+y
+```
